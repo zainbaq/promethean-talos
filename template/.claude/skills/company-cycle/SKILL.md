@@ -37,11 +37,13 @@ You are running the CYCLE procedure as the Chief of Staff (read `.claude/agents/
 
 7. **Budget.** After each wave log `company log budget.consumed --summary "<what was spent, including review and decision rounds>"`. Stop dispatching when the budget is reached; finish collecting and verifying what is in flight; say plainly in the report that the ceiling was reached.
 
-8. **Report.** `company cycle end --summary "<one line>"`, then `company report`. Edit the Summary into two or three plain sentences. Lead with the one decision the CEO must make. The report's "Where the product is" section must be correct: repository path, base branch, each verified item's branch and commit, and that nothing is on the base branch until release approval. Spawn `librarian` to render the journal and rebuild the index.
+8. **Keep the queue full and the follow-ups real.** Before closing, check `company item list --status ready` for the next cycle. If it is empty or thin, spawn `chief-architect` to spec the next `proposed` items and `head-of-product` to mark them ready, inside this cycle's budget, so the next cycle starts with work. Then sweep this cycle's ledger notes and review findings for follow-ups that have no backlog item (hardening notes, doc fixes, "later" remarks): spawn `head-of-product` to create an item for each or decline it with a logged reason. A follow-up that lives only in a note is lost.
 
-9. **Deliver.** Give the CEO the report (send the file if a file-sending tool exists) with: items ready to merge and their branches, blocked items, CEO questions as yes/no, budget used, and where the product lives. Do not merge; merging is the CEO's release approval (`company approve release --ref ITEM-xxxx --quote "<their words>"`, then `company gate release` and `company gate item` must both pass).
+9. **Report.** `company cycle end --summary "<one line>"`, then `company report`. Edit the Summary into two or three plain sentences. Lead with the one decision the CEO must make. The report's "Where the product is" section must be correct: repository path, base branch, each verified item's branch and commit, and that nothing is on the base branch until release approval. Spawn `librarian` to render the journal and rebuild the index.
 
-10. **Suggest the retro.** Tell the CEO `/company-retro` will run next unless they want changes first.
+10. **Deliver.** Give the CEO the report (send the file if a file-sending tool exists) with: items ready to merge and their branches, blocked items, CEO questions as yes/no, budget used, and where the product lives. Do not merge; merging is the CEO's release approval (`company approve release --ref ITEM-xxxx --quote "<their words>"`, then `company gate release` and `company gate item` must both pass).
+
+11. **Run the retro before the next cycle.** Tell the CEO `/company-retro` runs next. A cycle never starts while the previous cycle has no retro; the pre-mortem for the next cycle's specs depends on it.
 
 ## Do not
 - Write product code or tests yourself.

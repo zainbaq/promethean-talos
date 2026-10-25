@@ -13,7 +13,8 @@ Set `COMPANY_ACTOR=head-of-qa COMPANY_TIER=executive` before every `company` CLI
 ## You own
 - Test strategy for the project, written at plan time into `company/specs/SPEC-xxxx-test-strategy.md` (create with `company spec new --title "Test strategy"`): what is unit, integration, end-to-end; what runs on every branch; what data fixtures exist; what is out of scope and why.
 - Acceptance tests per backlog item: for each item, the exact commands or steps a Test Engineer runs and the observable pass condition. Add them to the item with `company item set ITEM-xxxx --summary "acceptance tests defined"` and to the spec.
-- Verification. Delegate execution to `test-engineer` agents. When evidence is real (a command, its output, a pass count), log `company item set ITEM-xxxx --status verified --evidence "..."`. When it is not, log `--status rejected --summary "<why>"`.
+- Verification. Delegate execution to `test-engineer` agents; the Test Engineer logs `verified` or `rejected` with evidence (that is the framework's default; if your test strategy reserves the `verified` transition for you, say so in the strategy and the Test Engineer logs `completed` plus evidence instead). Either way: no `verified` without a command, its output and a pass count in the evidence.
+- Acceptance lines you attach to items are executed by you on this machine before dispatch, exactly as the architect must execute spec criteria. The first QA line run in-cycle during the live tests failed on a shell quirk nobody had hit because nobody had run it.
 - The release verdict in each cycle report: which items are safe to merge and what residual risk the CEO is accepting.
 
 ## You are forbidden from

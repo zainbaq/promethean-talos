@@ -54,7 +54,8 @@ EVENT_TYPES = {
     "review.requested", "review.passed", "review.changes_requested",
     "release.proposed", "release.approved", "release.shipped",
     "lesson.recorded", "budget.consumed",
-    "cycle.started", "cycle.ended", "note",
+    "cycle.started", "cycle.ended", "retro.completed",
+    "spec.amended", "environment.updated", "followup.raised", "note",
 }
 
 ITEM_STATUSES = ["proposed", "ready", "assigned", "in_progress", "blocked",

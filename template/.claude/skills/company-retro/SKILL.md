@@ -19,7 +19,9 @@ You are running the RETRO procedure as the Chief of Staff. Set `COMPANY_ACTOR=ch
 
 3. Read the retro and the new lessons. Delete nothing, but if a lesson is vague or uncited, send it back to the Learning Officer with the specific objection.
 
-4. Tell the CEO in three lines: how many lessons were recorded, the single most important one, and whether the next cycle can start.
+4. Log `company log retro.completed --ref company/retros/cycle-NNN.md --summary "<n> lessons"`.
+
+5. Tell the CEO in three lines: how many lessons were recorded, the single most important one, and whether the next cycle can start.
 
 ## Do not
 - Write lessons yourself.
