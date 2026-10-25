@@ -65,6 +65,12 @@ TIERS = {"executive", "review", "execution", "mechanical", "ceo", "unknown"}
 
 # ----------------------------------------------------------------- helpers
 
+def write_lf(path, text, encoding="utf-8"):
+    """Write text with LF line endings on every platform (Windows would otherwise emit CRLF)."""
+    with open(path, "w", encoding=encoding, newline="\n") as f:
+        f.write(text)
+
+
 def now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -91,7 +97,7 @@ def read_state() -> dict:
 
 
 def write_state(st: dict) -> None:
-    STATE.write_text(json.dumps(st, indent=2) + "\n", encoding="utf-8")
+    write_lf(STATE, json.dumps(st, indent=2) + "\n", encoding="utf-8")
 
 
 def next_id(prefix: str) -> str:
@@ -139,7 +145,7 @@ def append_event(event: str, *, actor: str | None = None, tier: str | None = Non
     }
     if extra:
         rec.update(extra)
-    with LEDGER.open("a", encoding="utf-8") as f:
+    with open(LEDGER, "a", encoding="utf-8", newline="\n") as f:
         f.write(json.dumps(rec, ensure_ascii=False) + "\n")
     return rec
 
@@ -232,24 +238,24 @@ def cmd_init(args) -> None:
         (CO / d).mkdir(exist_ok=True)
         rp = CO / d / "README.md"
         if not rp.exists():
-            rp.write_text(f"# {d}\n\n{readme}", encoding="utf-8")
+            write_lf(rp, f"# {d}\n\n{readme}", encoding="utf-8")
     if not (CO / "charter.md").exists():
-        (CO / "charter.md").write_text(
+        write_lf((CO / "charter.md"), 
             "---\nstatus: draft\napproved_event: null\n---\n\n# Charter\n\n"
             "_Not yet written. The Head of Product drafts this from the CEO brief during kickoff._\n",
             encoding="utf-8")
     if not QUESTIONS.exists():
-        QUESTIONS.write_text("# Questions\n\nOpen questions first, answered ones below. Each question names who must answer it (`for:`); only `for: ceo` questions need the CEO.\n\n## Open\n\n## Answered\n\n", encoding="utf-8")
+        write_lf(QUESTIONS, "# Questions\n\nOpen questions first, answered ones below. Each question names who must answer it (`for:`); only `for: ceo` questions need the CEO.\n\n## Open\n\n## Answered\n\n", encoding="utf-8")
     if not (CO / "environment.md").exists():
-        (CO / "environment.md").write_text(ENVIRONMENT_TEMPLATE, encoding="utf-8")
+        write_lf((CO / "environment.md"), ENVIRONMENT_TEMPLATE, encoding="utf-8")
     if not (CO / "knowledge" / "INDEX.md").exists():
-        (CO / "knowledge" / "INDEX.md").write_text("# Knowledge index\n\n_No lessons yet._\n", encoding="utf-8")
+        write_lf((CO / "knowledge" / "INDEX.md"), "# Knowledge index\n\n_No lessons yet._\n", encoding="utf-8")
     if not LEDGER.exists():
         LEDGER.touch()
     if not STATE.exists():
         write_state({"cycle": 0, "cycle_open": False, "counters": {}})
     if not (CO / "brief.md").exists() and getattr(args, "brief", None):
-        (CO / "brief.md").write_text(Path(args.brief).read_text(encoding="utf-8"), encoding="utf-8")
+        write_lf((CO / "brief.md"), Path(args.brief).read_text(encoding="utf-8"), encoding="utf-8")
     print(f"company: scaffold ready at {CO}")
 
 
@@ -277,7 +283,7 @@ def cmd_ask(args) -> None:
              + (f"- options: {args.options}\n" if args.options else "")
              + "- answer: _pending_\n\n")
     text = text.replace("## Open\n\n", "## Open\n\n" + block, 1)
-    QUESTIONS.write_text(text, encoding="utf-8")
+    write_lf(QUESTIONS, text, encoding="utf-8")
     append_event("question.asked", actor=args.actor, tier=args.tier, ref=qid,
                  summary=args.question, extra={"blocks": args.ref, "audience": args.audience})
     print(qid)
@@ -295,7 +301,7 @@ def cmd_answer(args) -> None:
     answered = block.replace("- answer: _pending_", f"- answer ({now()}, by {by}): {args.answer}")
     text = text.replace(block, "", 1)
     text = text.replace("## Answered\n\n", "## Answered\n\n" + answered.rstrip("\n") + "\n\n", 1)
-    QUESTIONS.write_text(text, encoding="utf-8")
+    write_lf(QUESTIONS, text, encoding="utf-8")
     append_event("question.answered", actor=by, tier=tier, ref=args.qid, summary=args.answer)
     print(f"{args.qid} answered by {by}")
 
@@ -332,7 +338,7 @@ def cmd_item_new(args) -> None:
     }
     body = "## Description\n\n" + (args.description or "_TBD_") + "\n\n## Acceptance criteria\n\n"
     body += "\n".join(f"- [ ] {a}" for a in (args.acceptance or ["_TBD_"])) + "\n\n## Evidence\n\n_none yet_\n"
-    (CO / "backlog" / f"{iid}.md").write_text(dump_frontmatter(fm, body), encoding="utf-8")
+    write_lf((CO / "backlog" / f"{iid}.md"), dump_frontmatter(fm, body), encoding="utf-8")
     append_event("item.created", actor=args.actor, tier=args.tier, ref=iid, summary=args.title)
     print(iid)
 
@@ -372,7 +378,7 @@ def cmd_item_set(args) -> None:
     if args.evidence:
         body = body.replace("_none yet_", "").rstrip("\n") + "\n" + "\n".join(f"- {e} ({now()})" for e in args.evidence) + "\n"
     fm["updated"] = now()
-    p.write_text(dump_frontmatter(fm, body), encoding="utf-8")
+    write_lf(p, dump_frontmatter(fm, body), encoding="utf-8")
     ev = TRANSITION_EVENT.get(args.status or "", "note")
     append_event(ev, actor=args.actor, tier=args.tier, ref=args.item_id,
                  summary=args.summary or ", ".join(changed), evidence=args.evidence, branch=args.branch)
@@ -443,14 +449,14 @@ def cmd_spec_new(args) -> None:
     ensure_scaffold()
     sid = next_id("SPEC")
     name = f"{sid}-{slug(args.title)}.md"
-    (CO / "specs" / name).write_text(SPEC_TEMPLATE.format(
+    write_lf((CO / "specs" / name), SPEC_TEMPLATE.format(
         sid=sid, title=args.title, item=args.item or "", actor=args.actor or os.environ.get("COMPANY_ACTOR", "unknown"), ts=now()), encoding="utf-8")
     append_event("spec.created", actor=args.actor, tier=args.tier, ref=sid, summary=args.title, extra={"item": args.item})
     if args.item:
         p = item_path(args.item)
         fm, body = parse_frontmatter(p.read_text(encoding="utf-8"))
         fm["spec"] = sid
-        p.write_text(dump_frontmatter(fm, body), encoding="utf-8")
+        write_lf(p, dump_frontmatter(fm, body), encoding="utf-8")
     print(f"company/specs/{name}")
 
 
@@ -460,7 +466,7 @@ def cmd_decision_add(args) -> None:
     name = f"{aid}-{slug(args.title)}.md"
     body = (f"---\nid: {aid}\ntitle: {args.title}\nstatus: {args.status}\nauthor: {args.actor or os.environ.get('COMPANY_ACTOR', 'unknown')}\ncreated: {now()}\n---\n\n"
             f"# {args.title}\n\n## Context\n\n{args.context or ''}\n\n## Decision\n\n{args.decision or ''}\n\n## Consequences\n\n{args.consequences or ''}\n\n## Alternatives considered\n\n{args.alternatives or ''}\n")
-    (CO / "decisions" / name).write_text(body, encoding="utf-8")
+    write_lf((CO / "decisions" / name), body, encoding="utf-8")
     append_event("decision.recorded", actor=args.actor, tier=args.tier, ref=aid, summary=args.title)
     print(f"company/decisions/{name}")
 
@@ -477,7 +483,7 @@ def cmd_lesson_add(args) -> None:
         "recorded": now(), "author": args.actor or os.environ.get("COMPANY_ACTOR", "unknown"),
     }
     body = f"# {args.title}\n\n{args.body}\n\n**Why:** {args.why or ''}\n\n**How to apply:** {args.apply or ''}\n"
-    (CO / "knowledge" / name).write_text(dump_frontmatter(fm, body), encoding="utf-8")
+    write_lf((CO / "knowledge" / name), dump_frontmatter(fm, body), encoding="utf-8")
     append_event("lesson.recorded", actor=args.actor, tier=args.tier, ref=lid, summary=args.title, evidence=args.evidence)
     rebuild_index()
     print(f"company/knowledge/{name}")
@@ -499,7 +505,7 @@ def rebuild_index() -> list[str]:
         lines.append(f"- [{fm.get('title', p.stem)}]({p.name}) — tags: {', '.join(tags)} · confidence: {fm.get('confidence', '?')}")
     if len(lines) == 4:
         lines.append("_No lessons yet._")
-    (CO / "knowledge" / "INDEX.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    write_lf((CO / "knowledge" / "INDEX.md"), "\n".join(lines) + "\n", encoding="utf-8")
     return [f"possible duplicate: {a} ~ {b}" for a, b in dupes]
 
 
@@ -545,7 +551,7 @@ def cmd_approve(args) -> None:
         fm, body = parse_frontmatter(p.read_text(encoding="utf-8"))
         fm["status"] = "approved"
         fm["approved_event"] = ev["id"]
-        p.write_text(dump_frontmatter(fm, body), encoding="utf-8")
+        write_lf(p, dump_frontmatter(fm, body), encoding="utf-8")
     print(ev["id"])
 
 
@@ -662,7 +668,7 @@ def cmd_report(args) -> None:
     lines += [f"- {e['ref']} {e['summary']}" for e in ev if e["event"] == "lesson.recorded"] or ["_none_"]
     lines += ["", "## Budget", ""]
     lines += [f"- {e['summary']}" for e in ev if e["event"] == "budget.consumed"] or ["_not logged_"]
-    name.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    write_lf(name, "\n".join(lines) + "\n", encoding="utf-8")
     print(name.relative_to(ROOT).as_posix())
 
 
@@ -681,7 +687,7 @@ def cmd_journal(args) -> None:
             ref = f" `{e['ref']}`" if e.get("ref") else ""
             evid = "".join(f"\n  - evidence: {x}" for x in e.get("evidence", []))
             lines.append(f"- **{e['ts'][11:19]}** {e['actor']} ({e['tier']}) — {e['event']}{ref}: {e.get('summary', '')}{evid}")
-        (CO / "journal" / f"{d}.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+        write_lf((CO / "journal" / f"{d}.md"), "\n".join(lines) + "\n", encoding="utf-8")
     print(f"journal: {len(days)} day(s) rendered")
 
 

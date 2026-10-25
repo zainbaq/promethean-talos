@@ -33,6 +33,12 @@ MARK_START = "<!-- virtual-company:start -->"
 MARK_END = "<!-- virtual-company:end -->"
 
 
+def write_lf(path, text, encoding="utf-8"):
+    """Write text with LF line endings on every platform (Windows would otherwise emit CRLF)."""
+    with open(path, "w", encoding=encoding, newline="\n") as f:
+        f.write(text)
+
+
 def copy_tree(src: Path, dst: Path, force: bool) -> tuple[list[str], list[str]]:
     written, kept = [], []
     for p in src.rglob("*"):
@@ -74,7 +80,7 @@ def merge_settings(src: Path, dst: Path) -> str:
     for k, v in tpl.get("env", {}).items():
         cur.setdefault("env", {}).setdefault(k, v)
     dst.parent.mkdir(parents=True, exist_ok=True)
-    dst.write_text(json.dumps(cur, indent=2) + "\n", encoding="utf-8")
+    write_lf(dst, json.dumps(cur, indent=2) + "\n", encoding="utf-8")
     return "merged" if dst.exists() else "created"
 
 
@@ -86,11 +92,11 @@ def splice_claude_md(section_src: Path, claude_md: Path) -> str:
         if MARK_START in text and MARK_END in text:
             pre = text.split(MARK_START)[0]
             post = text.split(MARK_END, 1)[1]
-            claude_md.write_text(pre + block + post, encoding="utf-8")
+            write_lf(claude_md, pre + block + post, encoding="utf-8")
             return "replaced section"
-        claude_md.write_text(text.rstrip("\n") + "\n\n" + block, encoding="utf-8")
+        write_lf(claude_md, text.rstrip("\n") + "\n\n" + block, encoding="utf-8")
         return "appended section"
-    claude_md.write_text(f"# Project\n\n{block}", encoding="utf-8")
+    write_lf(claude_md, f"# Project\n\n{block}", encoding="utf-8")
     return "created"
 
 
@@ -144,7 +150,7 @@ def main() -> None:
     existing = gi.read_text(encoding="utf-8").splitlines() if gi.exists() else []
     missing = [w for w in wanted if w not in existing]
     if missing:
-        with gi.open("a", encoding="utf-8") as f:
+        with open(gi, "a", encoding="utf-8", newline="\n") as f:
             if existing and existing[-1].strip():
                 f.write("\n")
             f.write("# virtual-company\n" + "\n".join(missing) + "\n")
