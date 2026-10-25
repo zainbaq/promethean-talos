@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -98,6 +99,7 @@ def main() -> None:
     ap.add_argument("target", help="path to the project to stamp")
     ap.add_argument("--brief", help="path to a brief.md to seed company/brief.md")
     ap.add_argument("--force", action="store_true", help="overwrite existing agent/skill/tool files")
+    ap.add_argument("--python", default="3.12", help="Python version for the project venv created with uv (default 3.12)")
     args = ap.parse_args()
 
     target = Path(args.target).resolve()
@@ -147,6 +149,26 @@ def main() -> None:
                 f.write("\n")
             f.write("# virtual-company\n" + "\n".join(missing) + "\n")
         print(f".gitignore: added {', '.join(missing)}")
+
+    # Project-local toolchain: create .venv with uv when available, so the record CLI and
+    # every role run on the project's own interpreter from the first command.
+    venv = target / ".venv"
+    if venv.exists():
+        print(".venv: kept (yours)")
+    else:
+        uv = shutil.which("uv") or os.environ.get("UV")
+        if uv:
+            try:
+                subprocess.run([uv, "venv", "--python", args.python, str(venv)], cwd=target, check=True)
+                subprocess.run([uv, "pip", "install", "--python", str(venv), "pytest"], cwd=target, check=True)
+                print(f".venv: created with uv (Python {args.python}) and pytest installed")
+            except subprocess.CalledProcessError as e:
+                print(f".venv: NOT created (uv exited {e.returncode}). Fix uv's Python install "
+                      f"(`uv python install {args.python} --reinstall`) and re-run init.py, or let the kickoff procedure create the venv.")
+                shutil.rmtree(venv, ignore_errors=True)
+        else:
+            print(".venv: NOT created. uv was not found on PATH; install it (winget install astral-sh.uv) and re-run, "
+                  "or let the kickoff procedure create the venv. Until then the record CLI falls back to COMPANY_PYTHON.")
 
     cmd = [sys.executable, str(target / "tools" / "company" / "company.py"), "init"]
     if args.brief:
