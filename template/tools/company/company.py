@@ -519,6 +519,20 @@ def cmd_consolidate(args) -> None:
 
 # ----------------------------------------------------------------- cycle / approve / gate
 
+def cycle_elapsed(st: dict, ev: list[dict]) -> str:
+    """Wall-clock since the current cycle's cycle.started event, measured from the ledger, not guessed."""
+    if not st.get("cycle"):
+        return "n/a"
+    started = latest(ev, "cycle.started", f"cycle-{st['cycle']:03d}")
+    if not started:
+        return "unknown"
+    t0 = datetime.strptime(started["ts"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    end_ev = latest(ev, "cycle.ended", f"cycle-{st['cycle']:03d}") if not st.get("cycle_open") else None
+    t1 = datetime.strptime(end_ev["ts"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc) if end_ev else datetime.now(timezone.utc)
+    mins = int((t1 - t0).total_seconds() // 60)
+    return f"{mins // 60}h{mins % 60:02d}m"
+
+
 def cmd_cycle(args) -> None:
     ensure_scaffold()
     st = read_state()
@@ -534,10 +548,12 @@ def cmd_cycle(args) -> None:
     else:
         if not st.get("cycle_open"):
             die("no open cycle")
+        elapsed = cycle_elapsed(st, read_ledger())
         st["cycle_open"] = False
         write_state(st)
-        append_event("cycle.ended", actor=args.actor, tier=args.tier, ref=f"cycle-{st['cycle']:03d}", summary=args.summary or "")
-        print(f"cycle {st['cycle']} ended")
+        append_event("cycle.ended", actor=args.actor, tier=args.tier, ref=f"cycle-{st['cycle']:03d}",
+                     summary=(args.summary or "") + f" [elapsed {elapsed}, budget {st.get('budget') or 'unspecified'}]")
+        print(f"cycle {st['cycle']} ended after {elapsed} (budget: {st.get('budget') or 'unspecified'})")
 
 
 def cmd_approve(args) -> None:
@@ -604,7 +620,7 @@ def cmd_status(args) -> None:
     print(f"- Charter: **{fm.get('status', 'draft')}**")
     print(f"- Plan: **{'approved ' + plan['ts'] if plan else 'not approved'}**")
     print(f"- Environment: **{'probed' if env_ok else 'NOT probed (run the kickoff environment step)'}**")
-    print(f"- Cycle: **{st.get('cycle', 0)}** ({'open' if st.get('cycle_open') else 'closed'}), budget: {st.get('budget') or 'n/a'}")
+    print(f"- Cycle: **{st.get('cycle', 0)}** ({'open' if st.get('cycle_open') else 'closed'}), budget: {st.get('budget') or 'n/a'}, elapsed (from ledger): {cycle_elapsed(st, ev)}")
     print(f"- Backlog: " + (", ".join(f"{k} {v}" for k, v in sorted(counts.items())) or "empty"))
     print(f"- Open questions for CEO: **{len(ceo_q)}** ({all_open - len(ceo_q)} open for other roles)")
     lessons = len(list((CO / "knowledge").glob("lesson-*.md")))
@@ -667,7 +683,8 @@ def cmd_report(args) -> None:
     lines += ["", "## Lessons recorded", ""]
     lines += [f"- {e['ref']} {e['summary']}" for e in ev if e["event"] == "lesson.recorded"] or ["_none_"]
     lines += ["", "## Budget", ""]
-    lines += [f"- {e['summary']}" for e in ev if e["event"] == "budget.consumed"] or ["_not logged_"]
+    lines.append(f"- Elapsed (from ledger): {cycle_elapsed(st, all_ev)}; budget: {st.get('budget') or 'unspecified'}")
+    lines += [f"- {e['summary']}" for e in ev if e["event"] == "budget.consumed"] or ["- _no budget.consumed events logged_"]
     write_lf(name, "\n".join(lines) + "\n", encoding="utf-8")
     print(name.relative_to(ROOT).as_posix())
 
