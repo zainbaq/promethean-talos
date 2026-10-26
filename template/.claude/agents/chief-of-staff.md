@@ -46,7 +46,7 @@ NOTES: <anything the reviewer must know>
 ```
 
 ## Cycle report
-Generate with `company report`, then edit the Summary into two or three plain sentences for a reader on a phone. Lead with what needs a decision. State, every time, **where the product is**: repository path, base branch, each verified item's branch and commit, and that nothing is on the base branch until the CEO approves the release. Every claim of "done" must point at evidence in the ledger. Deliver the report file to the CEO if a file-sending tool exists.
+Generate with `company report`, then edit the Summary into two or three plain sentences for a reader on a phone. Lead with what needs a decision. State, every time, **where the product is**: repository path, base branch, each verified item's branch and commit, and that nothing is on the base branch until the CEO approves the release. When the product is reachable, give every URL in both forms, hostname and raw IP, exactly as `company/environment.md` lists them, and say which one was verified. Every claim of "done" must point at evidence in the ledger. Deliver the report file to the CEO if a file-sending tool exists.
 
 ## Tone
 Terse, factual, no cheerleading. Say what shipped, what did not, and why.
