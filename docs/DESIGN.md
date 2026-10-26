@@ -1,4 +1,4 @@
-# Virtual Company — Design
+# Talos — Design
 
 **A Promethean Labs framework for running a software project as an autonomous, tiered team of Claude Code agents with a shared, git-tracked project record.**
 
@@ -141,7 +141,7 @@ Event types: `project.kickoff`, `charter.proposed|approved`, `plan.proposed|appr
 Agents never hand-write JSON. They call the CLI, which validates and appends:
 
 ```bash
-company log item.completed --ref ITEM-0007 --summary "..." --evidence "tests: 14 passed" --branch vc/item-0007
+talos log item.completed --ref ITEM-0007 --summary "..." --evidence "tests: 14 passed" --branch vc/item-0007
 ```
 
 ### 4.2 Why files and not a database first
@@ -149,12 +149,12 @@ company log item.completed --ref ITEM-0007 --summary "..." --evidence "tests: 14
 - Reviewable from a phone through GitHub without any service running.
 - Diffable, so a PR shows exactly what the company learned and decided.
 - Zero dependencies for people who clone the public repo.
-- A SQLite adapter (`company db sync`) can index the same JSONL for queries later. The CLI is the abstraction; the storage behind it can change.
+- A SQLite adapter (`talos db sync`) can index the same JSONL for queries later. The CLI is the abstraction; the storage behind it can change.
 
 ### 4.3 How knowledge compounds
 
 - **Lessons** are one fact per file with `applies_to` tags (`engineering`, `testing`, `research`, `product`, a module name), `evidence` (ledger event ids), and `confidence`.
-- **Skills load lessons by tag.** The `company-plan` skill reads lessons tagged `product` and `architecture`; an Engineer's spec links the lessons that constrain it; the Head of QA reads `testing` lessons before writing acceptance tests.
+- **Skills load lessons by tag.** The `talos-plan` skill reads lessons tagged `product` and `architecture`; an Engineer's spec links the lessons that constrain it; the Head of QA reads `testing` lessons before writing acceptance tests.
 - **Retros convert surprises to lessons**: the Learning Officer reads the cycle's ledger, finds blocked items, rejected reviews, re-opened bugs and budget overruns, and writes lessons that cite them.
 - **Consolidation** merges duplicates, deletes lessons contradicted by later evidence, and keeps `INDEX.md` short enough to load every time.
 - **Pre-mortem** at plan time: the Learning Officer lists the lessons most likely to bite this plan and the architect must address each one in the specs.
@@ -166,14 +166,14 @@ This is journaling plus retrieval, not model training. It works when lessons are
 | Framework concept | Claude Code primitive |
 |---|---|
 | Role | `.claude/agents/<role>.md` with `model` tier, allowed tools, system prompt |
-| Procedure (kickoff, plan, cycle, review, retro, consolidate, status) | `.claude/skills/company-<procedure>/SKILL.md` |
+| Procedure (kickoff, plan, cycle, review, retro, consolidate, status) | `.claude/skills/talos-<procedure>/SKILL.md` |
 | Parallel engineers in isolation | Agent tool with worktree isolation, or sessions, one branch per item |
 | Deterministic multi-step runs | Workflow tool scripts (optional; the skills work without it) |
-| Gates and guard rails | Hooks in `.claude/settings.json` (session-start status injection, dangerous-command blocks, stop reminders to log) plus the `company gate` CLI check |
+| Gates and guard rails | Hooks in `.claude/settings.json` (session-start status injection, dangerous-command blocks, stop reminders to log) plus the `talos gate` CLI check |
 | Project constitution | `CLAUDE.md` section describing the operating model and pointing at `company/` |
 | Standing knowledge | `company/knowledge/` (project-scoped, in repo) alongside Claude's own auto-memory (user-scoped) |
 | CEO on the phone | Remote Control; cycle reports sent as files; PRs on GitHub; questions in `questions.md` answered in chat |
-| Overnight cycles | Scheduled routine that opens a session and runs `/company-cycle` |
+| Overnight cycles | Scheduled routine that opens a session and runs `/talos-cycle` |
 
 ## 6. The CEO experience
 
@@ -182,23 +182,23 @@ This is journaling plus retrieval, not model training. It works when lessons are
 3. Approve. The company plans and asks for plan approval, with a pre-mortem attached.
 4. Approve. Cycles run. Each ends with `company/reports/cycle-N.md` delivered to the phone: what shipped, evidence, open questions as yes/no, PRs to merge.
 5. Answer questions in chat. Merge PRs on GitHub. The next cycle starts.
-6. At any point: `/company-status` for a dashboard, `company/journal/` for the narrative, `company/knowledge/INDEX.md` for what the company has learned.
+6. At any point: `/talos-status` for a dashboard, `company/journal/` for the narrative, `company/knowledge/INDEX.md` for what the company has learned.
 
 ## 7. Repository layout (this template)
 
 ```
-virtual-company/
+promethean-talos/
   README.md                 # public-facing: what, why, quick start
   CLAUDE.md                 # the operating model, read by every session in a stamped project
   init.py                   # stamps the template into a target repo (idempotent, merges existing files)
   template/
     .claude/
       agents/               # one file per role, tiered by model
-      skills/               # company-kickoff, -plan, -cycle, -review, -retro, -consolidate, -status
+      skills/               # talos-kickoff, -plan, -cycle, -review, -retro, -consolidate, -status
       settings.json         # hooks + sane permissions
     company/                # empty scaffold with README files
-    tools/company/          # the stdlib-only CLI (company log/ask/backlog/lesson/status/report/gate)
-    CLAUDE.company.md       # section appended to the project's CLAUDE.md
+    tools/talos/          # the stdlib-only CLI (talos log/ask/backlog/lesson/status/report/gate)
+    CLAUDE.talos.md       # section appended to the project's CLAUDE.md
   docs/
     DESIGN.md               # this document
     ROLES.md                # role charters in prose, for humans
@@ -245,4 +245,4 @@ The framework was exercised on a deliberately tiny project (a 40-line word-count
 1. Should Review-tier roles run on Opus or on Fable? Opus is the default here for cost; Fable for security review if the project handles PII.
 2. Default parallelism: three engineers per cycle unless the charter says otherwise.
 3. Should the template ship a GitHub Actions workflow that runs tests on every `vc/*` branch, so gate 3 shows green checks on the phone? Proposed: yes, optional.
-4. Repo name and licence for the public release. Proposed: `virtual-company`, MIT, "by Promethean Labs".
+4. Repo name and licence for the public release. Proposed: `promethean-talos`, MIT, "by Promethean Labs".

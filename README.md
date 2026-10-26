@@ -1,8 +1,12 @@
-# Virtual Company
+# Talos
 
-**Run a software project as an autonomous, tiered team of Claude Code agents with one shared, git-tracked project record.**
+**Tiered Agents that Learn, Orchestrate and Ship.**
+
+Run a software project as an autonomous, tiered team of Claude Code agents with one shared, git-tracked project record.
 
 By [Promethean Labs](https://promethean-labs.co). MIT licensed.
+
+> In Greek myth, Talos was the bronze automaton Hephaestus built to guard Crete on its own. This Talos is a standing company of agents that works on its own between your decisions.
 
 Stamp this template into any repo, write a brief, and a standing company of roles takes the work from research through design, build, test and release while you approve three kinds of checkpoints from wherever you are, including your phone through Claude Code Remote Control.
 
@@ -24,18 +28,18 @@ Agents are good at executing precise instructions and bad at guessing. Most "AI 
 Requirements: Claude Code, git, and [`uv`](https://docs.astral.sh/uv/) (`winget install astral-sh.uv` on Windows). Nothing else: at kickoff the company creates a per-project `.venv` with `uv`, which downloads its own Python, so no project depends on Anaconda, a system interpreter, or anything else on the machine. The record CLI itself runs on that venv (any Python 3.8+ is enough to run `init.py` once).
 
 ```bash
-git clone https://github.com/promethean-labs/virtual-company
-python virtual-company/init.py /path/to/your/project --brief my-brief.md
+git clone https://github.com/promethean-labs/promethean-talos
+python promethean-talos/init.py /path/to/your/project --brief my-brief.md
 ```
 
-Then open the project in Claude Code and either run `/company-kickoff` or just describe what you want to build. The company will:
+Then open the project in Claude Code and either run `/talos-kickoff` or just describe what you want to build. The company will:
 
 1. Research (if the brief needs it) and draft a **charter**. You approve it.
 2. Write ADRs, specs, a backlog with acceptance criteria and a test strategy. You approve the **plan**.
 3. Run a **cycle**: engineers implement items in parallel worktrees, reviewers review, QA verifies, and you get a one-screen report with yes/no questions and branches ready to merge. You approve **releases**.
 4. Run a **retro** that turns surprises into cited lessons the next cycle reads.
 
-Say "approved" (or what should change) at each gate. `/company-review` records your words. `/company-status` tells you where things stand.
+Say "approved" (or what should change) at each gate. `/talos-review` records your words. `/talos-status` tells you where things stand.
 
 ## The cast
 
@@ -52,13 +56,13 @@ Each role is a markdown file in `.claude/agents/`. Add your own by copying one. 
 
 ```
 .claude/agents/          15 role definitions
-.claude/skills/          /company-kickoff /company-plan /company-cycle /company-review
-                         /company-retro /company-status /company-consolidate
+.claude/skills/          /talos-kickoff /talos-plan /talos-cycle /talos-review
+                         /talos-retro /talos-status /talos-consolidate
 .claude/rules/           conventions that load when anyone touches company/
 .claude/settings.json    hooks (status on start, destructive-command guard, log reminder) and permissions, merged with yours
-tools/company/           the stdlib-only record CLI and hook scripts
+tools/talos/           the stdlib-only record CLI and hook scripts
 company/                 the project record
-CLAUDE.md                a "Virtual Company" section appended between markers
+CLAUDE.md                a "Talos" section appended between markers
 ```
 
 It also adds a `.gitattributes` that forces LF checkouts (byte-exact fixtures survive Windows) and ignores bytecode and test caches. `init.py` is idempotent. Re-run it to pick up framework updates; your own files are kept unless you pass `--force`.
@@ -74,7 +78,7 @@ company/
   specs/SPEC-*.md    knowledge/lesson-*.md  research/
 ```
 
-All writes go through `tools/company/company` (`log`, `ask`, `answer`, `item`, `spec`, `decision`, `lesson`, `cycle`, `approve`, `gate`, `status`, `report`, `journal`, `consolidate`). A hook blocks direct edits to the ledger. See `docs/DESIGN.md` for the event model and why files beat a database here.
+All writes go through `tools/talos/talos` (`log`, `ask`, `answer`, `item`, `spec`, `decision`, `lesson`, `cycle`, `approve`, `gate`, `status`, `report`, `journal`, `consolidate`). A hook blocks direct edits to the ledger. See `docs/DESIGN.md` for the event model and why files beat a database here.
 
 ## Honest limits
 

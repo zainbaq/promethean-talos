@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-init.py — stamp the Virtual Company framework into a target project.
+init.py — stamp the Talos framework into a target project.
 
     python init.py /path/to/project [--brief brief.md] [--force]
 
@@ -9,10 +9,10 @@ What it does (idempotent; safe to re-run to pick up framework updates):
      (existing files are overwritten only with --force; otherwise kept and reported).
   2. Merges template/.claude/settings.json into the project's .claude/settings.json
      (hooks are appended if not already present; permissions are unioned).
-  3. Copies template/tools/company/ (the record CLI) into the project.
-  4. Appends template/CLAUDE.company.md to the project's CLAUDE.md between markers
+  3. Copies template/tools/talos/ (the record CLI) into the project.
+  4. Appends template/CLAUDE.talos.md to the project's CLAUDE.md between markers
      (replaces the marked section on re-run).
-  5. Runs `company init` to create the company/ record scaffold, seeding company/brief.md
+  5. Runs `talos init` to create the company/ record scaffold, seeding company/brief.md
      if --brief is given.
 
 Standard library only.
@@ -29,8 +29,10 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 TEMPLATE = HERE / "template"
-MARK_START = "<!-- virtual-company:start -->"
-MARK_END = "<!-- virtual-company:end -->"
+MARK_START = "<!-- talos:start -->"
+MARK_END = "<!-- talos:end -->"
+# Projects stamped before the rename carry these markers; re-stamping replaces them in place.
+LEGACY_MARKS = [("<!-- virtual-company:start -->", "<!-- virtual-company:end -->")]
 
 
 def write_lf(path, text, encoding="utf-8"):
@@ -89,6 +91,9 @@ def splice_claude_md(section_src: Path, claude_md: Path) -> str:
     block = f"{MARK_START}\n{section}\n{MARK_END}\n"
     if claude_md.exists():
         text = claude_md.read_text(encoding="utf-8")
+        for old_start, old_end in LEGACY_MARKS:
+            if old_start in text and old_end in text:
+                text = text.replace(old_start, MARK_START).replace(old_end, MARK_END)
         if MARK_START in text and MARK_END in text:
             pre = text.split(MARK_START)[0]
             post = text.split(MARK_END, 1)[1]
@@ -118,7 +123,7 @@ def main() -> None:
         sys.stdout.reconfigure(line_buffering=True)  # keep our output ordered before the subprocess's
     except Exception:
         pass
-    print(f"Stamping Virtual Company into {target}\n")
+    print(f"Stamping Talos into {target}\n")
 
     for sub in ("agents", "skills", "rules"):
         w, k = copy_tree(TEMPLATE / ".claude" / sub, target / ".claude" / sub, args.force)
@@ -127,15 +132,15 @@ def main() -> None:
     print(f".claude/settings.json: {merge_settings(TEMPLATE / '.claude' / 'settings.json', target / '.claude' / 'settings.json')}")
 
     w, k = copy_tree(TEMPLATE / "tools", target / "tools", True)
-    for name in ("company", "pyrun"):
+    for name in ("talos", "pyrun"):
         try:
-            p = target / "tools" / "company" / name
+            p = target / "tools" / "talos" / name
             p.chmod(p.stat().st_mode | 0o111)
         except Exception:
             pass
-    print(f"tools/company: {len(w)} written (always refreshed)")
+    print(f"tools/talos: {len(w)} written (always refreshed)")
 
-    print(f"CLAUDE.md: {splice_claude_md(TEMPLATE / 'CLAUDE.company.md', target / 'CLAUDE.md')}")
+    print(f"CLAUDE.md: {splice_claude_md(TEMPLATE / 'CLAUDE.talos.md', target / 'CLAUDE.md')}")
 
     # Repo hygiene learned from the first live run: force LF checkouts so byte-exact
     # fixtures survive Windows autocrlf, and keep bytecode and test caches out of git.
@@ -153,7 +158,7 @@ def main() -> None:
         with open(gi, "a", encoding="utf-8", newline="\n") as f:
             if existing and existing[-1].strip():
                 f.write("\n")
-            f.write("# virtual-company\n" + "\n".join(missing) + "\n")
+            f.write("# promethean-talos\n" + "\n".join(missing) + "\n")
         print(f".gitignore: added {', '.join(missing)}")
 
     # Project-local toolchain: create .venv with uv when available, so the record CLI and
@@ -174,14 +179,14 @@ def main() -> None:
                 shutil.rmtree(venv, ignore_errors=True)
         else:
             print(".venv: NOT created. uv was not found on PATH; install it (winget install astral-sh.uv) and re-run, "
-                  "or let the kickoff procedure create the venv. Until then the record CLI falls back to COMPANY_PYTHON.")
+                  "or let the kickoff procedure create the venv. Until then the record CLI falls back to TALOS_PYTHON.")
 
-    cmd = [sys.executable, str(target / "tools" / "company" / "company.py"), "init"]
+    cmd = [sys.executable, str(target / "tools" / "talos" / "talos.py"), "init"]
     if args.brief:
         cmd += ["--brief", str(Path(args.brief).resolve())]
     subprocess.run(cmd, cwd=target, check=True)
 
-    print("\nDone. Next: open the project in Claude Code and run /company-kickoff (or just describe what you want to build).")
+    print("\nDone. Next: open the project in Claude Code and run /talos-kickoff (or just describe what you want to build).")
 
 
 if __name__ == "__main__":

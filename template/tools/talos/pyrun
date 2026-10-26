@@ -1,11 +1,11 @@
 #!/bin/sh
 # pyrun — run a Python script with the project's own interpreter.
 #
-# Order: the project's .venv (created at kickoff), then $COMPANY_PYTHON, then python3,
+# Order: the project's .venv (created at kickoff), then $TALOS_PYTHON, then python3,
 # python, py -3. The project venv comes first so the company never depends on whatever
 # happens to be installed on the machine. Each candidate must actually execute, which
 # skips broken stubs such as the Windows Store "python" placeholder.
-# Usage: tools/company/pyrun script.py [args...]
+# Usage: tools/talos/pyrun script.py [args...]
 check='import sys; sys.exit(0 if sys.version_info >= (3, 7) else 1)'
 here=$(dirname "$0")
 root=$(cd "$here/../.." 2>/dev/null && pwd)
@@ -15,8 +15,8 @@ for venv_py in "$root/.venv/Scripts/python.exe" "$root/.venv/bin/python"; do
     exec "$venv_py" "$@"
   fi
 done
-if [ -n "$COMPANY_PYTHON" ] && "$COMPANY_PYTHON" -c "$check" >/dev/null 2>&1; then
-  exec "$COMPANY_PYTHON" "$@"
+if [ -n "$TALOS_PYTHON" ] && "$TALOS_PYTHON" -c "$check" >/dev/null 2>&1; then
+  exec "$TALOS_PYTHON" "$@"
 fi
 for c in python3 python; do
   if command -v "$c" >/dev/null 2>&1 && "$c" -c "$check" >/dev/null 2>&1; then
@@ -26,5 +26,5 @@ done
 if command -v py >/dev/null 2>&1 && py -3 -c "$check" >/dev/null 2>&1; then
   exec py -3 "$@"
 fi
-echo "pyrun: no working Python 3.7+ found. Create the project venv (see company/environment.md: 'uv venv .venv') or set COMPANY_PYTHON." >&2
+echo "pyrun: no working Python 3.7+ found. Create the project venv (see company/environment.md: 'uv venv .venv') or set TALOS_PYTHON." >&2
 exit 127

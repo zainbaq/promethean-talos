@@ -34,7 +34,7 @@ def main() -> int:
         pass
     stale = last_ts is None or datetime.now(timezone.utc) - last_ts > timedelta(minutes=30)
     if stale:
-        print(json.dumps({"systemMessage": f"virtual-company: {len(changed)} file(s) changed outside company/ and nothing was logged to the record in the last 30 minutes. If this was company work, log it (`tools/company/company log ...` or `item set`)."}))
+        print(json.dumps({"systemMessage": f"promethean-talos: {len(changed)} file(s) changed outside company/ and nothing was logged to the record in the last 30 minutes. If this was company work, log it (`tools/talos/talos log ...` or `item set`)."}))
     return 0
 
 
