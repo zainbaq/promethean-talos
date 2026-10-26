@@ -166,8 +166,21 @@ def parse_frontmatter(text: str) -> tuple[dict, str]:
             v = v.strip()
             if v.startswith("[") and v.endswith("]"):
                 v = [x.strip().strip('"') for x in v[1:-1].split(",") if x.strip()]
+            elif len(v) >= 2 and v[0] == '"' and v[-1] == '"':
+                try:
+                    v = json.loads(v)
+                except Exception:
+                    v = v[1:-1]
             fm[k.strip()] = v
     return fm, body.lstrip("\n")
+
+
+def _fm_scalar(v) -> str:
+    """Quote frontmatter scalars that YAML would otherwise misread (colons, leading symbols, quotes)."""
+    s = "" if v is None else str(v)
+    if s == "" or re.search(r"[:#\[\]{}]|^[\s\-?&*!|>'\"%@`]|\s$", s):
+        return json.dumps(s)
+    return s
 
 
 def dump_frontmatter(fm: dict, body: str) -> str:
@@ -176,7 +189,7 @@ def dump_frontmatter(fm: dict, body: str) -> str:
         if isinstance(v, list):
             lines.append(f"{k}: [{', '.join(json.dumps(x) for x in v)}]")
         else:
-            lines.append(f"{k}: {v}")
+            lines.append(f"{k}: {_fm_scalar(v)}")
     lines.append("---")
     return "\n".join(lines) + "\n\n" + body.rstrip("\n") + "\n"
 

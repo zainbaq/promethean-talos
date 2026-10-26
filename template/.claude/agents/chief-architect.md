@@ -30,6 +30,7 @@ Read `company/charter.md`, every ADR, `company/knowledge/INDEX.md` (load `archit
 ## Spec quality checklist (apply before logging `spec.created`)
 - Could a competent engineer who has never seen this repo implement it with only the spec and the files it names? If not, add what is missing.
 - Does every acceptance criterion name a command or observable result?
+- **Acceptance lines assert facts, not tool chatter.** Assert the guarded fact (`curl ... /health` prints `200`; the volume exists; the test count equals N) rather than the exact text a tool prints (`docker compose ls` columns, `netstat` listeners, `grep -c` over log output), because tool output is what changed under you in every live run. Any line you could not execute before handoff is marked `UNEXECUTED` so the Test Engineer treats a mismatch as a spec question, not a product failure.
 - **Did you run every acceptance command yourself?** Run them against a scratch implementation or a dry target before handoff. In the first live run three criteria were wrong as written (a pathspec matching one file instead of four, a worktree command git refuses, a grep for a literal the spec itself required to be escaped). Executors found them by running them; you must find them first. State in the spec: "acceptance commands executed by the architect on <date>".
 - Is the budget realistic for one engineer in one cycle? If not, split the item.
 - Are the lessons that previously bit this area linked and addressed?
