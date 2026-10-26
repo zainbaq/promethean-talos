@@ -1,6 +1,6 @@
 ## Talos
 
-This project is run by a virtual company: tiered Claude Code agents with one shared, git-tracked record in `company/`. The human is the CEO. Framework: https://github.com/promethean-labs/promethean-talos (Promethean Labs).
+This project is run by a virtual company: tiered Claude Code agents with one shared, git-tracked record in `company/`. The human is the CEO. Framework: https://github.com/zainbaq/promethean-talos (Promethean Labs).
 
 ### Tiers and models
 - **Executive (Fable):** `chief-of-staff`, `head-of-product`, `chief-architect`, `head-of-research`, `head-of-qa`, `learning-officer`. They think, decide and write specs.

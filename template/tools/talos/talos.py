@@ -242,7 +242,7 @@ executor prompt points here instead of restating machine facts. Update it whenev
 - Databases, containers, dev servers available and how to start them:
 
 ## Access from other devices
-- Every URL the CEO may open from a phone is listed in BOTH forms: the hostname (e.g. `http://jarvishome:8000`, needs MagicDNS) and the raw address (e.g. `http://100.103.88.68:8000`). Reports copy both. In the first live run the CEO reached the product only by the form the report had not given.
+- Every URL the CEO may open from a phone is listed in BOTH forms: the hostname (e.g. `http://myhost:8000`, needs MagicDNS) and the raw address (e.g. `http://100.x.y.z:8000`). Reports copy both. In the first live run the CEO reached the product only by the form the report had not given.
 - Tailscale node name and IPv4 (`tailscale status`), or other tunnel/ingress:
 
 ## Secrets

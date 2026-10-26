@@ -28,7 +28,7 @@ Agents are good at executing precise instructions and bad at guessing. Most "AI 
 Requirements: Claude Code, git, and [`uv`](https://docs.astral.sh/uv/) (`winget install astral-sh.uv` on Windows). Nothing else: at kickoff the company creates a per-project `.venv` with `uv`, which downloads its own Python, so no project depends on Anaconda, a system interpreter, or anything else on the machine. The record CLI itself runs on that venv (any Python 3.8+ is enough to run `init.py` once).
 
 ```bash
-git clone https://github.com/promethean-labs/promethean-talos
+git clone https://github.com/zainbaq/promethean-talos
 python promethean-talos/init.py /path/to/your/project --brief my-brief.md
 ```
 
