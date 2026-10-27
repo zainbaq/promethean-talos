@@ -872,7 +872,11 @@ def spend_lines(cycle: int | None) -> list[str]:
              "- Top roles: " + ", ".join(f"{g['key']} {pct(g['total'])}" for g in by_role[:3]) + ".",
              f"- Per verified item: " + (f"{U.millions(grand // n_ver)}M ({n_ver} verified)." if n_ver else "_no items verified_.")]
     if cycle is not None:
-        lines.append(f"- Cycle {cycle} counts from its start to the next cycle's start, so it includes its retro; kickoff and planning are cycle 0. Details: `talos usage --cycle {cycle}`.")
+        retro_done = any(e["event"] == "retro.completed" and e.get("cycle") == cycle for e in read_ledger())
+        if not retro_done:
+            lines[0] = lines[0].replace("- Tokens processed:", "- Tokens processed **at close, before the retro** (provisional):")
+        lines.append(f"- Cycle {cycle} counts from its start to the next cycle's start, so it includes its retro; kickoff and planning are cycle 0. "
+                     f"The retro records the final figure and the budget verdict. Details: `talos usage --cycle {cycle}`.")
     return lines
 
 

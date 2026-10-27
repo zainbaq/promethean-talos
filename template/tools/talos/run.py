@@ -9,6 +9,7 @@ Phases:
     plan           /talos-plan      fable    ADRs, specs, backlog, test strategy
     review         /talos-review    sonnet   record the CEO's words (pass them as text)
     cycle-build    /talos-cycle build   fable    select, dispatch engineers, collect hand-backs
+                                        (sonnet when every ready item is risk low)
     cycle-verify   /talos-cycle verify  sonnet   reviews and integration verification
     cycle-close    /talos-cycle close   sonnet   follow-ups, report, CEO summary
     cycle          the three cycle phases in order; stops at the first failure
@@ -63,8 +64,22 @@ def claude_bin() -> str:
     sys.exit("talos run: Claude Code CLI not found; put `claude` on PATH or set TALOS_CLAUDE")
 
 
+def all_ready_low_risk() -> bool:
+    """Build dispatch of only low-risk items is mechanical, so it does not need the executive model."""
+    sys.path.insert(0, str(HERE))
+    try:
+        import talos  # noqa: E402
+        talos.ROOT, talos.CO = ROOT, ROOT / "company"
+        ready = [i for i in talos.load_items() if i.get("status") == "ready"]
+        return bool(ready) and all(i.get("risk") == "low" for i in ready)
+    except Exception:
+        return False
+
+
 def command(phase: str, text: str, model: str | None, turns: int | None) -> list[str]:
     skill, default_model, default_turns = PHASES[phase]
+    if phase == "cycle-build" and not model and all_ready_low_risk():
+        default_model = "sonnet"
     prompt = f"{skill} {text}".strip()
     return [claude_bin(), "-p", prompt, "--model", model or default_model,
             "--permission-mode", "acceptEdits", "--allowedTools", TOOLS,

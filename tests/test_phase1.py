@@ -152,6 +152,12 @@ class Launcher(CliBase):
         self.assertIn('"/talos-review I approve"', dry("review", "I approve", "--model", "opus"))
         self.assertIn("--model opus", dry("review", "x", "--model", "opus"))
         self.assertEqual(len(dry("cycle").strip().splitlines()), 3)
+        self.cli("item", "new", "--title", "Docs", "--risk", "low")
+        self.cli("item", "set", "ITEM-0001", "--status", "ready")
+        self.assertIn("--model sonnet", dry("cycle-build"))  # all ready items low risk: dispatch on Sonnet
+        self.cli("item", "new", "--title", "Login")
+        self.cli("item", "set", "ITEM-0002", "--status", "ready")
+        self.assertIn("--model fable", dry("cycle-build"))
 
 
 class Teams(unittest.TestCase):
