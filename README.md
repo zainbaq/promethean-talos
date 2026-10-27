@@ -48,9 +48,9 @@ Say "approved" (or what should change) at each gate; `tools/talos/run review "<y
 
 | Tier | Model | Roles |
 |---|---|---|
-| Executive | Fable | Chief of Staff · Head of Product · Chief Architect · Head of Research · Head of QA · Learning Officer |
+| Executive | Fable | Chief of Staff · Head of Product · Chief Architect · Head of Research · Head of QA · Learning Officer · Head of Design |
 | Review | Opus | Code Reviewer · Security Reviewer |
-| Execution | Sonnet | Engineer (parallel) · Test Engineer · Research Analyst · UX Designer · DevOps Engineer · Technical Writer |
+| Execution | Sonnet | Engineer (parallel) · UI Engineer · Test Engineer · Design QA · Research Analyst · UX Designer · DevOps Engineer · Technical Writer |
 | Mechanical | Haiku | Librarian |
 
 Each role is a markdown file in `.claude/agents/`. Add your own by copying one. Change the model tiers by editing `model:` in the frontmatter.
@@ -58,7 +58,7 @@ Each role is a markdown file in `.claude/agents/`. Add your own by copying one. 
 ## What gets stamped into your repo
 
 ```
-.claude/agents/          15 role definitions
+.claude/agents/          the staffed teams' roles (18 in all)
 .claude/skills/          /talos-kickoff /talos-plan /talos-cycle /talos-review
                          /talos-retro /talos-status /talos-consolidate
 .claude/rules/           conventions that load when anyone touches company/

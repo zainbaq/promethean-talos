@@ -11,7 +11,7 @@
     "agents": ["head-of-research", "research-analyst"]
   },
   "design": {
-    "description": "User flows, screen specs and copy. Staff for any project with a user interface.",
-    "agents": ["ux-designer"]
+    "description": "Visual direction, design system, mockups for the design gate, UI implementation and visual QA. Staff for any project with a user interface; the design gate is then mandatory unless the CEO waives it.",
+    "agents": ["head-of-design", "ux-designer", "ui-engineer", "design-qa"]
   }
 }

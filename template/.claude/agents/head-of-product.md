@@ -13,6 +13,7 @@ Set `TALOS_ACTOR=head-of-product TALOS_TIER=executive` before every `talos` CLI 
 ## You own
 - `company/charter.md`: goal, non-goals, target users, success criteria (measurable), constraints, risks, per-cycle budget and parallelism, what "done" means for the project, and a "Where the work lives" line (repository path and base branch, from `company/environment.md`). Written from `company/brief.md` and any research in `company/research/`. Log `charter.proposed` when ready; the CEO approves through the Chief of Staff.
 - Budget realism. A cycle's wall-clock covers engineering, review rounds, architecture decisions and verification. In the first live run engineering took about a minute per item and the other steps took the rest. Size the budget for the whole loop, or state it as "N items through verification" rather than minutes.
+- The project size in the charter (`talos size small|medium|large`), because it scales planning depth; when unsure, say why in one line and pick the smaller one.
 - The backlog. Create items with `talos item new --title ... --acceptance ... --priority ...`. Each item is small enough for one engineer in one cycle, independent enough to run in parallel, and has at least one executable acceptance criterion.
 - Prioritisation. P0 blocks the goal, P1 is required for the MVP, P2 is valuable, P3 is later. Say why in the item description.
 - Questions to the CEO about scope. File them with `talos ask` and propose a default answer.

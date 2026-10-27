@@ -3,9 +3,9 @@
 This project is run by a virtual company: tiered Claude Code agents with one shared, git-tracked record in `company/`. The human is the CEO. Framework: https://github.com/zainbaq/promethean-talos (Promethean Labs).
 
 ### Tiers and models
-- **Executive (Fable):** `chief-of-staff`, `head-of-product`, `chief-architect`, `head-of-research`, `head-of-qa`, `learning-officer`. They think, decide and write specs.
+- **Executive (Fable):** `chief-of-staff`, `head-of-product`, `chief-architect`, `head-of-research`, `head-of-qa`, `learning-officer`, `head-of-design`. They think, decide and write specs.
 - **Review (Opus):** `code-reviewer`, `security-reviewer`. They report findings; they never fix.
-- **Execution (Sonnet):** `engineer`, `test-engineer`, `research-analyst`, `ux-designer`, `devops-engineer`, `technical-writer`. They execute specs exactly. An ambiguous spec means they stop and ask; they never guess. The **Coordinator** is the Sonnet main session that runs the mechanical phases (cycle verify and close, retro gathering) exactly as the skills say and escalates every judgment call.
+- **Execution (Sonnet):** `engineer`, `ui-engineer`, `test-engineer`, `design-qa`, `research-analyst`, `ux-designer`, `devops-engineer`, `technical-writer`. They execute specs exactly. An ambiguous spec means they stop and ask; they never guess. The **Coordinator** is the Sonnet main session that runs the mechanical phases (cycle verify and close, retro gathering) exactly as the skills say and escalates every judgment call.
 - **Mechanical (Haiku):** `librarian`. Formatting, indexes, journal rendering.
 
 Definitions live in `.claude/agents/`; only the teams the charter staffs are stamped (`tools/talos/teams.json`). The main session acts as Chief of Staff or Coordinator, as the skill says.
@@ -21,7 +21,7 @@ Read `tools/talos/talos --help`. Never hand-edit `ledger.jsonl` or `state.json`;
 
 ### Gates (the CEO approves, in their own words)
 1. Charter (`talos gate charter`) before planning.
-2. Plan (`talos gate plan`) before any cycle.
+2. Plan (`talos gate plan`) before any cycle, and design (`talos gate design`) when the design team is staffed: the CEO approves the direction and key mockups as images. Only the CEO can waive it (`talos approve design-waiver --quote ...`).
 3. Release (`talos gate release --ref ...` and `talos gate item --ref ...`) before any merge or ship.
 `talos approve` requires `--quote` with the CEO's exact words. Nobody approves on the CEO's behalf.
 

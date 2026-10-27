@@ -136,6 +136,43 @@ class Phase1Cli(CliBase):
         self.assertIn("the budget is 120", self.cli("spec", "lint", "SPEC-0001", ok=False).stdout)
 
 
+class DesignGate(CliBase):
+    def test_gate_follows_staffing_proposal_approval_and_waiver(self):
+        # setUp staffs core,design: closed until the CEO approves a proposed design
+        self.assertEqual(self.cli("gate", "design", ok=False).returncode, 1)
+        self.cli("log", "design.proposed", "--summary", "direction + 2 screens")
+        self.assertEqual(self.cli("gate", "design", ok=False).returncode, 1)
+        self.cli("approve", "design", "--quote", "Love it")
+        self.assertIn("design approved", self.cli("gate", "design").stdout)
+        self.cli("log", "design.proposed", "--summary", "revised screens")
+        self.assertEqual(self.cli("gate", "design", ok=False).returncode, 1)  # a new proposal needs a new approval
+        self.cli("approve", "design-waiver", "--quote", "Skip the design gate for this one")
+        self.assertIn("waived", self.cli("gate", "design").stdout)
+
+    def test_no_design_team_means_no_gate(self):
+        self.cli("init", "--teams", "core")
+        self.assertIn("no design team staffed", self.cli("gate", "design").stdout)
+
+
+class Size(CliBase):
+    def test_size_drives_brief_lint_and_plan_turns(self):
+        self.assertIn("medium", self.cli("size").stdout)
+        self.cli("size", "small")
+        self.assertIn("size small", self.cli("status", "--brief").stdout)
+        specs = self.root / "company" / "specs"
+        mid = GOOD_SPEC.replace("## Non-goals\nNone.", "## Non-goals\n" + "\n".join(f"- line {i}" for i in range(70)))
+        self.cli("decision", "add", "--title", "Toolchain", "--status", "accepted", "--decision", "uv")
+        (specs / "SPEC-0001-mid.md").write_text(mid, encoding="utf-8")
+        self.assertIn("the budget is 60", self.cli("spec", "lint", ok=False).stdout)
+        self.cli("size", "medium")
+        self.assertEqual(self.cli("spec", "lint").returncode, 0)
+        self.cli("size", "small")
+        env = dict(self.env, TALOS_CLAUDE=sys.executable)
+        out = subprocess.run([sys.executable, str(TALOS / "run.py"), "plan", "--dry-run"], cwd=self.root, env=env, capture_output=True, text=True).stdout
+        self.assertIn("--max-turns 40", out)
+        self.assertIn("size: small", (self.root / "company" / "charter.md").read_text(encoding="utf-8"))
+
+
 class Launcher(CliBase):
     def test_dry_run_uses_lean_flags_and_phase_models(self):
         env = dict(self.env, TALOS_CLAUDE=sys.executable)  # any existing file stands in for the CLI
@@ -179,7 +216,7 @@ class Teams(unittest.TestCase):
             init("--teams", "core,design")
             self.assertTrue((target / ".claude" / "agents" / "ux-designer.md").exists())
             out = init("--teams", "core", "--prune")
-            self.assertIn("pruned (ux-designer)", out)
+            self.assertIn("pruned (design-qa, head-of-design, ui-engineer, ux-designer)", out)
             self.assertFalse((target / ".claude" / "agents" / "ux-designer.md").exists())
             self.assertIn("company/.context/", (target / ".gitignore").read_text())
             bad = subprocess.run([sys.executable, str(REPO / "init.py"), str(target), "--teams", "design"], env=env, capture_output=True, text=True)

@@ -18,13 +18,14 @@ Commands:
     decision add                 create an ADR
     lesson add                   record a lesson in knowledge/
     cycle start|end              open or close a cycle
-    approve charter|plan|release record a CEO approval (quote the CEO)
-    gate charter|plan|release|item   exit 1 unless the gate is satisfied
+    approve charter|plan|design|design-waiver|release   record a CEO approval (quote the CEO)
+    gate charter|plan|design|release|item   exit 1 unless the gate is satisfied
     status                       print the dashboard (markdown)
     report [--cycle N]           write company/reports/cycle-NNN.md
     events [--cycle N]           one line per ledger event
     context ITEM --role R        write the context pack one role needs for one item
     spec lint [SPEC ...]         check specs against the handoff contract
+    size [small|medium|large]    print or set the project size (scales planning depth)
     usage [--cycle N] [--by ...] measured token usage from Claude Code transcripts
     journal [--date YYYY-MM-DD]  render ledger to company/journal/
     consolidate                  rebuild knowledge/INDEX.md and flag duplicates
@@ -59,7 +60,8 @@ EVENT_TYPES = {
     "release.proposed", "release.approved", "release.shipped",
     "lesson.recorded", "budget.consumed",
     "cycle.started", "cycle.ended", "retro.completed",
-    "spec.amended", "environment.updated", "followup.raised", "run.completed", "note",
+    "spec.amended", "environment.updated", "followup.raised", "run.completed",
+    "design.proposed", "design.approved", "design-waiver.approved", "note",
 }
 
 ITEM_STATUSES = ["proposed", "ready", "assigned", "in_progress", "blocked",
@@ -68,6 +70,23 @@ ITEM_STATUSES = ["proposed", "ready", "assigned", "in_progress", "blocked",
 TIERS = {"executive", "review", "execution", "mechanical", "ceo", "unknown"}
 
 RISKS = ["low", "normal", "high"]
+
+# Planning depth scales with the project (charter frontmatter `size`, set with `talos size`).
+# spec_lines: lint budget outside code blocks. plan_turns: the launcher's turn cap for the plan phase.
+SIZES = {
+    "small": {"spec_lines": 60, "plan_turns": 40},
+    "medium": {"spec_lines": 120, "plan_turns": 90},
+    "large": {"spec_lines": 160, "plan_turns": 120},
+}
+
+
+def project_size() -> str:
+    try:
+        fm, _ = parse_frontmatter((CO / "charter.md").read_text(encoding="utf-8"))
+    except OSError:
+        return "medium"
+    s = str(fm.get("size") or "medium").strip().lower()
+    return s if s in SIZES else "medium"
 
 
 # ----------------------------------------------------------------- helpers
@@ -265,7 +284,7 @@ def cmd_init(args) -> None:
             write_lf(rp, f"# {d}\n\n{readme}", encoding="utf-8")
     if not (CO / "charter.md").exists():
         write_lf((CO / "charter.md"), 
-            "---\nstatus: draft\napproved_event: null\n---\n\n# Charter\n\n"
+            "---\nstatus: draft\napproved_event: null\nsize: medium\n---\n\n# Charter\n\n"
             "_Not yet written. The Head of Product drafts this from the CEO brief during kickoff._\n",
             encoding="utf-8")
     if not QUESTIONS.exists():
@@ -612,9 +631,23 @@ def cmd_gate(args) -> None:
     if args.what in ("charter", "plan"):
         proposed = latest(ev, f"{args.what}.proposed")
         approved = latest(ev, f"{args.what}.approved")
-        if not approved or (proposed and approved["ts"] < proposed["ts"]):
+        if not approved or (proposed and ev.index(approved) < ev.index(proposed)):  # ledger order, not 1-second timestamps
             die(f"GATE CLOSED: {args.what} not approved by CEO since last proposal", 1)
         print(f"gate open: {args.what} approved at {approved['ts']} ({approved['id']})")
+    elif args.what == "design":
+        teams = read_state().get("teams") or []
+        if teams and "design" not in teams:
+            print("gate open: no design team staffed (no user interface)")
+            return
+        waiver = latest(ev, "design-waiver.approved")
+        if waiver:
+            print(f"gate open: CEO waived the design gate ({waiver['id']}: {waiver.get('summary', '')})")
+            return
+        proposed = latest(ev, "design.proposed")
+        approved = latest(ev, "design.approved")
+        if not approved or (proposed and ev.index(approved) < ev.index(proposed)):  # ledger order, not 1-second timestamps
+            die("GATE CLOSED: design direction and key screens not approved by CEO since last proposal", 1)
+        print(f"gate open: design approved at {approved['ts']} ({approved['id']})")
     elif args.what == "release":
         approved = latest(ev, "release.approved", args.ref)
         if not approved:
@@ -641,11 +674,27 @@ def status_brief(st: dict, ev: list[dict]) -> None:
     for it in items:
         by.setdefault(it.get("status", "?"), []).append(it["id"] + ("" if it.get("risk", "normal") == "normal" else f"({it['risk']})"))
     print(f"talos: cycle {st.get('cycle', 0)} {'open' if st.get('cycle_open') else 'closed'} | charter {fm.get('status', 'draft')} | "
-          f"plan {'approved' if plan else 'not approved'} | environment {'probed' if env_ok else 'NOT probed'} | teams {','.join(st.get('teams') or ['all'])}")
+          f"plan {'approved' if plan else 'not approved'} | environment {'probed' if env_ok else 'NOT probed'} | size {project_size()} | teams {','.join(st.get('teams') or ['all'])}")
     print("items: " + (" | ".join(f"{s} {', '.join(by[s])}" for s in ITEM_STATUSES if s in by) or "none"))
     print("CEO questions open: " + (", ".join(open_ceo_questions()) or "none"))
     for e in ev[-3:]:
         print(f"last: {e['ts'][5:16]} {e['actor']} {e['event']} {e.get('ref') or ''}".rstrip())
+
+
+def cmd_size(args) -> None:
+    """Print or set the project size that scales planning depth."""
+    ensure_scaffold()
+    if not args.size:
+        s = project_size()
+        print(f"{s} (spec budget {SIZES[s]['spec_lines']} lines, plan turn cap {SIZES[s]['plan_turns']})")
+        return
+    p = CO / "charter.md"
+    fm, body = parse_frontmatter(p.read_text(encoding="utf-8"))
+    old = fm.get("size") or "medium"
+    fm["size"] = args.size
+    write_lf(p, dump_frontmatter(fm, body), encoding="utf-8")
+    append_event("note", actor=args.actor, tier=args.tier, ref="company/charter.md", summary=f"project size {old} -> {args.size}")
+    print(f"size: {args.size}")
 
 
 def cmd_events(args) -> None:
@@ -822,7 +871,7 @@ def cmd_spec_lint(args) -> None:
             targets.append(p)
     bad = 0
     for p in targets:
-        errors, warnings = lint_spec(p, args.max_lines)
+        errors, warnings = lint_spec(p, args.max_lines or SIZES[project_size()]["spec_lines"])
         mark = "FAIL" if errors else "ok"
         print(f"{mark}  {p.relative_to(ROOT).as_posix() if p.is_absolute() and ROOT in p.parents else p}")
         for e in errors:
@@ -1081,7 +1130,9 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("spec"); spsub = sp.add_subparsers(dest="sub", required=True)
     s = spsub.add_parser("new"); common(s); s.add_argument("--title", required=True); s.add_argument("--item"); s.set_defaults(fn=cmd_spec_new)
     s = spsub.add_parser("lint", help="check specs against the handoff contract; exit 1 on errors"); s.add_argument("specs", nargs="*", help="SPEC ids or paths (default all)")
-    s.add_argument("--max-lines", type=int, default=120); s.set_defaults(fn=cmd_spec_lint)
+    s.add_argument("--max-lines", type=int, help="default: from the project size (small 60, medium 120, large 160)"); s.set_defaults(fn=cmd_spec_lint)
+    s = sub.add_parser("size", help="print or set the project size (scales planning depth)"); common(s)
+    s.add_argument("size", nargs="?", choices=list(SIZES)); s.set_defaults(fn=cmd_size)
 
     d = sub.add_parser("decision"); dsub = d.add_subparsers(dest="sub", required=True)
     s = dsub.add_parser("add"); common(s)
@@ -1098,10 +1149,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     s = sub.add_parser("cycle"); common(s); s.add_argument("action", choices=["start", "end"]); s.add_argument("--budget"); s.add_argument("--summary"); s.set_defaults(fn=cmd_cycle)
 
-    s = sub.add_parser("approve"); s.add_argument("what", choices=["charter", "plan", "release"]); s.add_argument("--ref"); s.add_argument("--quote", required=True)
+    s = sub.add_parser("approve"); s.add_argument("what", choices=["charter", "plan", "release", "design", "design-waiver"]); s.add_argument("--ref"); s.add_argument("--quote", required=True)
     s.set_defaults(fn=cmd_approve)
 
-    s = sub.add_parser("gate"); s.add_argument("what", choices=["charter", "plan", "release", "item"]); s.add_argument("--ref"); s.set_defaults(fn=cmd_gate)
+    s = sub.add_parser("gate"); s.add_argument("what", choices=["charter", "plan", "design", "release", "item"]); s.add_argument("--ref"); s.set_defaults(fn=cmd_gate)
 
     s = sub.add_parser("status"); s.add_argument("--no-spend", action="store_true", help="skip reading transcripts (used by the session hook)")
     s.add_argument("--brief", action="store_true", help="four lines: state, items by status, CEO questions, last events"); s.set_defaults(fn=cmd_status)

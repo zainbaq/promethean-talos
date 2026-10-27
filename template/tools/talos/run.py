@@ -7,6 +7,7 @@ run.py: run one Talos phase as a fresh, lean, headless Claude Code session.
 Phases:
     kickoff        /talos-kickoff   fable    research, environment, charter
     plan           /talos-plan      fable    ADRs, specs, backlog, test strategy
+                                    (turn cap and depth from the charter size)
     review         /talos-review    sonnet   record the CEO's words (pass them as text)
     cycle-build    /talos-cycle build   fable    select, dispatch engineers, collect hand-backs
                                         (sonnet when every ready item is risk low)
@@ -76,10 +77,23 @@ def all_ready_low_risk() -> bool:
         return False
 
 
+def plan_turns() -> int:
+    """The plan phase's turn cap follows the charter's project size."""
+    sys.path.insert(0, str(HERE))
+    try:
+        import talos  # noqa: E402
+        talos.ROOT, talos.CO = ROOT, ROOT / "company"
+        return talos.SIZES[talos.project_size()]["plan_turns"]
+    except Exception:
+        return PHASES["plan"][2]
+
+
 def command(phase: str, text: str, model: str | None, turns: int | None) -> list[str]:
     skill, default_model, default_turns = PHASES[phase]
     if phase == "cycle-build" and not model and all_ready_low_risk():
         default_model = "sonnet"
+    if phase == "plan" and not turns:
+        default_turns = plan_turns()
     prompt = f"{skill} {text}".strip()
     return [claude_bin(), "-p", prompt, "--model", model or default_model,
             "--permission-mode", "acceptEdits", "--allowedTools", TOOLS,
