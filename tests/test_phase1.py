@@ -97,6 +97,11 @@ class Phase1Cli(CliBase):
         self.assertEqual(len(ev), 2)  # item.created x2; the set logs item.* only for transitions it maps
         self.assertTrue(all(" item." in l for l in ev))
 
+    def test_multiline_acceptance_becomes_one_line_per_criterion(self):
+        self.cli("item", "new", "--title", "T", "--acceptance", "- [ ] first\n- second\n\nthird")
+        body = (self.root / "company" / "backlog" / "ITEM-0001.md").read_text(encoding="utf-8")
+        self.assertIn("- [ ] first\n- [ ] second\n- [ ] third\n", body)
+
     def test_context_pack_finds_spec_by_path_and_rulings(self):
         self.cli("item", "new", "--title", "Add thing")
         self.cli("decision", "add", "--title", "Toolchain", "--status", "accepted", "--context", "long context",

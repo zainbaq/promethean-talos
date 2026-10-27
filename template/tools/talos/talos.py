@@ -374,8 +374,22 @@ def item_path(item_id: str) -> Path:
     return p
 
 
+def split_criteria(values) -> list[str]:
+    """One checklist line per criterion, even when an agent passes several in one multi-line string."""
+    out = []
+    for v in values or []:
+        for line in str(v).splitlines():
+            line = line.strip().lstrip("-*").strip()
+            if line.startswith("[ ]") or line.startswith("[x]"):
+                line = line[3:].strip()
+            if line:
+                out.append(line)
+    return out
+
+
 def cmd_item_new(args) -> None:
     ensure_scaffold()
+    args.acceptance = split_criteria(args.acceptance)
     iid = next_id("ITEM")
     fm = {
         "id": iid, "title": args.title, "status": "proposed",
@@ -398,6 +412,7 @@ TRANSITION_EVENT = {
 
 def cmd_item_set(args) -> None:
     ensure_scaffold()
+    args.acceptance = split_criteria(args.acceptance)
     p = item_path(args.item_id)
     fm, body = parse_frontmatter(p.read_text(encoding="utf-8"))
     changed = []

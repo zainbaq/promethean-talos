@@ -137,9 +137,13 @@ def run_phase(phase: str, text: str, model: str | None, turns: int | None, dry: 
     if not res:
         print(raw or p.stderr.strip() or f"no output (exit {p.returncode})")
         return p.returncode or 1
-    log_run(phase, used_model, res)
     print(res.get("result") or "")
-    ok = not res.get("is_error") and res.get("subtype") == "success"
+    text = str(res.get("result") or "").lower()
+    limit = any(k in text for k in ("out of usage credits", "usage limit", "rate limit reached", "credit balance is too low"))
+    ok = not res.get("is_error") and res.get("subtype") == "success" and not limit
+    if limit:
+        res["subtype"] = "usage limit reached (the phase did not finish; rerun it when usage is available)"
+    log_run(phase, used_model, res)
     print(f"\ntalos run: {phase} {'finished' if ok else 'STOPPED: ' + str(res.get('subtype'))}; "
           f"{res.get('num_turns')} turns, ${res.get('total_cost_usd', 0):.2f}, session {res.get('session_id')}")
     return 0 if ok else 1

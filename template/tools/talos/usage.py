@@ -96,7 +96,7 @@ def _scan(path: Path, role: str, item: str, seen: set, out: list) -> None:
                 continue
             m = d.get("message") or {}
             u, mid = m.get("usage"), m.get("id")
-            if not isinstance(u, dict) or not mid or mid in seen:
+            if not isinstance(u, dict) or not mid or mid in seen or m.get("model") == "<synthetic>":
                 continue
             seen.add(mid)
             out.append({
