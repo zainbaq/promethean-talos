@@ -78,7 +78,7 @@ company/
   specs/SPEC-*.md    knowledge/lesson-*.md  research/
 ```
 
-All writes go through `tools/talos/talos` (`log`, `ask`, `answer`, `item`, `spec`, `decision`, `lesson`, `cycle`, `approve`, `gate`, `status`, `report`, `journal`, `consolidate`). A hook blocks direct edits to the ledger. See `docs/DESIGN.md` for the event model and why files beat a database here.
+All writes go through `tools/talos/talos` (`log`, `ask`, `answer`, `item`, `spec`, `decision`, `lesson`, `cycle`, `approve`, `gate`, `status`, `report`, `usage`, `journal`, `consolidate`). A hook blocks direct edits to the ledger. See `docs/DESIGN.md` for the event model and why files beat a database here.
 
 ## Honest limits
 

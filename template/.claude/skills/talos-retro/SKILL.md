@@ -13,7 +13,7 @@ You are running the RETRO procedure as the Chief of Staff. Set `TALOS_ACTOR=chie
 
 ## Steps
 
-1. Spawn `learning-officer` with the cycle number and the instruction to: read the cycle's ledger events and journal, the blocked and rejected items, review outcomes, budget events and CEO answers; write `company/retros/cycle-NNN.md`; record lessons with `talos lesson add` (one fact per lesson, evidence required, `applies_to` tags that match roles or modules); and run `talos consolidate`.
+1. Spawn `learning-officer` with the cycle number and the instruction to: read the cycle's ledger events and journal, the blocked and rejected items, review outcomes, budget events, CEO answers and the measured spend (`talos usage --cycle N` and `talos usage --cycle N --by item`); write `company/retros/cycle-NNN.md` with a "Spend" section that names the most expensive role of the cycle, why it cost what it did, and one concrete change that would cut it; record lessons with `talos lesson add` (one fact per lesson, evidence required, `applies_to` tags that match roles or modules); and run `talos consolidate`.
 
 2. Spawn `librarian` to render the journal, rebuild the index, and check frontmatter and links.
 
@@ -21,7 +21,7 @@ You are running the RETRO procedure as the Chief of Staff. Set `TALOS_ACTOR=chie
 
 4. Log `talos log retro.completed --ref company/retros/cycle-NNN.md --summary "<n> lessons"`.
 
-5. Tell the CEO in three lines: how many lessons were recorded, the single most important one, and whether the next cycle can start.
+5. Tell the CEO in three lines: how many lessons were recorded, the single most important one, the cycle's measured spend with its most expensive role, and whether the next cycle can start.
 
 ## Do not
 - Write lessons yourself.

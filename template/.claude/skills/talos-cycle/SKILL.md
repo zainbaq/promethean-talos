@@ -35,7 +35,7 @@ You are running the CYCLE procedure as the Chief of Staff (read `.claude/agents/
 
 6. **Verify.** When all reviewed items of the wave have passed, spawn one `test-engineer` with the list of items, branches and commits. It builds a detached integration worktree of the base branch, merges the item branches locally, runs everything, and logs `verified` or `rejected` per item itself. Rejected goes back to an engineer once; then escalate.
 
-7. **Budget.** After each wave log `talos log budget.consumed --summary "<what was spent, including review and decision rounds>"`. Stop dispatching when the budget is reached; finish collecting and verifying what is in flight; say plainly in the report that the ceiling was reached.
+7. **Budget.** After each wave run `talos status` and log `talos log budget.consumed --summary "<elapsed from the ledger> and <measured tokens from the Spend line>, including review and decision rounds"`. A token budget in the charter is compared with the measured figure only, never an estimate. Stop dispatching when the budget is reached; finish collecting and verifying what is in flight; say plainly in the report that the ceiling was reached.
 
 8. **Keep the queue full and the follow-ups real.** Before closing, check `talos item list --status ready` for the next cycle. If it is empty or thin, spawn `chief-architect` to spec the next `proposed` items and `head-of-product` to mark them ready, inside this cycle's budget, so the next cycle starts with work. Then sweep this cycle's ledger notes and review findings for follow-ups that have no backlog item (hardening notes, doc fixes, "later" remarks): spawn `head-of-product` to create an item for each or decline it with a logged reason. A follow-up that lives only in a note is lost.
 

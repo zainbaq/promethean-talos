@@ -9,6 +9,7 @@ This repository **is the template**, not a stamped project. There is no `company
   python init.py /tmp/vc-test --brief examples/brief-mdm.md
   cd /tmp/vc-test && tools/talos/talos status
   ```
-- `tools/talos/talos.py` and the hook scripts are standard-library Python 3.8+; keep them dependency-free.
+- `tools/talos/talos.py`, `usage.py` and the hook scripts are standard-library Python 3.8+; keep them dependency-free.
+- Tests: create the repo venv once with `uv venv --python 3.12 .venv`, then run `.venv/Scripts/python -m unittest discover -s tests` (Windows) or `.venv/bin/python -m unittest discover -s tests`.
 - Design rationale: `docs/DESIGN.md`. Role charters: `docs/ROLES.md`. How to extend: `docs/EXTENDING.md`.
 - Public repo (MIT) maintained by Promethean Labs. Keep client- or project-specific content out of `template/`; project seeds belong in the stamped project's `company/knowledge/`.

@@ -22,6 +22,7 @@ Commands:
     gate charter|plan|release|item   exit 1 unless the gate is satisfied
     status                       print the dashboard (markdown)
     report [--cycle N]           write company/reports/cycle-NNN.md
+    usage [--cycle N] [--by ...] measured token usage from Claude Code transcripts
     journal [--date YYYY-MM-DD]  render ledger to company/journal/
     consolidate                  rebuild knowledge/INDEX.md and flag duplicates
 
@@ -619,6 +620,84 @@ def cmd_gate(args) -> None:
         print(f"gate open: {args.ref} verified {verified['id']}")
 
 
+# ----------------------------------------------------------------- usage (token spend)
+
+def load_usage(cycle: int | None = None):
+    """Usage records from Claude Code transcripts, tagged with their cycle. Fails soft."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import usage as U
+    recs, why = U.collect(ROOT, os.environ.get("TALOS_TRANSCRIPTS"))
+    if recs:
+        U.assign_cycles(recs, read_ledger())
+        if cycle is not None:
+            recs = [r for r in recs if r["cycle"] == cycle]
+            if not recs:
+                why = f"no usage recorded in cycle {cycle}"
+    return U, recs, why
+
+
+def verified_count(cycle: int | None) -> int:
+    return len({e["ref"] for e in read_ledger()
+                if e["event"] == "item.verified" and e.get("ref") and (cycle is None or e.get("cycle") == cycle)})
+
+
+def spend_lines(cycle: int | None) -> list[str]:
+    """The Spend section of a cycle report: measured tokens, never an estimate."""
+    U, recs, why = load_usage(cycle)
+    if why:
+        return [f"- _Usage unavailable: {why}._"]
+    grand = sum(U.total(r) for r in recs)
+    t = {f: sum(r[f] for r in recs) for f in U.FIELDS}
+    pct = lambda n: f"{100 * n / grand:.0f}%" if grand else "0%"
+    by_model = U.summarize(recs, lambda r: U.family(r["model"]))
+    by_role = U.summarize(recs, lambda r: r["role"])
+    n_ver = verified_count(cycle)
+    lines = [f"- Tokens processed: **{U.millions(grand)}M** (cache read {U.millions(t['read'])}M, cache write {U.millions(t['write'])}M, "
+             f"fresh input {U.millions(t['fresh'])}M, output {U.millions(t['out'])}M) over {len(recs)} model calls.",
+             "- By model: " + ", ".join(f"{g['key']} {pct(g['total'])}" for g in by_model) + ".",
+             "- Top roles: " + ", ".join(f"{g['key']} {pct(g['total'])}" for g in by_role[:3]) + ".",
+             f"- Per verified item: " + (f"{U.millions(grand // n_ver)}M ({n_ver} verified)." if n_ver else "_no items verified_.")]
+    if cycle is not None:
+        lines.append(f"- Cycle {cycle} counts from its start to the next cycle's start, so it includes its retro; kickoff and planning are cycle 0. Details: `talos usage --cycle {cycle}`.")
+    return lines
+
+
+def cmd_usage(args) -> None:
+    ensure_scaffold()
+    U, recs, why = load_usage(args.cycle)
+    if why:
+        print(f"talos usage: {why}")
+        return
+    keys = {
+        "role": (lambda r: (r["role"], U.family(r["model"])), ["Role", "Model"]),
+        "model": (lambda r: (U.family(r["model"]),), ["Model"]),
+        "item": (lambda r: (r["item"],), ["Item"]),
+        "cycle": (lambda r: (str(r["cycle"]),), ["Cycle"]),
+    }
+    keyf, heads = keys[args.by]
+    rows = U.summarize(recs, keyf)
+    grand = sum(g["total"] for g in rows)
+    if args.json:
+        for g in rows:
+            g["key"] = list(g["key"])
+        print(json.dumps({"cycle": args.cycle, "by": args.by, "total": grand, "verified_items": verified_count(args.cycle), "rows": rows}, indent=2))
+        return
+    scope = f"cycle {args.cycle}" if args.cycle is not None else "all cycles"
+    print(f"# Token usage, {scope}, by {args.by} (millions of tokens, measured from transcripts)\n")
+    print("| " + " | ".join(heads + ["Calls", "Cache read", "Cache write", "Fresh in", "Output", "Total", "Share"]) + " |")
+    print("|" + "---|" * len(heads) + "---:|" * 7)
+    for g in rows:
+        share = f"{100 * g['total'] / grand:.1f}%" if grand else "0%"
+        print("| " + " | ".join(list(g["key"]) + [str(g["calls"]), U.millions(g["read"]), U.millions(g["write"]),
+                                                    U.millions(g["fresh"]), U.millions(g["out"]), U.millions(g["total"]), share]) + " |")
+    print(f"| **Total** |" + " |" * (len(heads) - 1) + f" {sum(g['calls'] for g in rows)} | {U.millions(sum(g['read'] for g in rows))} | "
+          f"{U.millions(sum(g['write'] for g in rows))} | {U.millions(sum(g['fresh'] for g in rows))} | {U.millions(sum(g['out'] for g in rows))} | {U.millions(grand)} | 100% |")
+    n_ver = verified_count(args.cycle)
+    if n_ver:
+        print(f"\nPer verified item: {U.millions(grand // n_ver)}M tokens ({n_ver} verified in {scope}).")
+    print("\nCache reads are billed far below fresh input; compare runs on the same columns, not on Total alone.")
+
+
 # ----------------------------------------------------------------- status / report / journal
 
 def cmd_status(args) -> None:
@@ -639,6 +718,14 @@ def cmd_status(args) -> None:
     print(f"- Plan: **{'approved ' + plan['ts'] if plan else 'not approved'}**")
     print(f"- Environment: **{'probed' if env_ok else 'NOT probed (run the kickoff environment step)'}**")
     print(f"- Cycle: **{st.get('cycle', 0)}** ({'open' if st.get('cycle_open') else 'closed'}), budget: {st.get('budget') or 'n/a'}, elapsed (from ledger): {cycle_elapsed(st, ev)}")
+    if not args.no_spend:
+        U, recs, why = load_usage(st.get("cycle", 0))
+        if why:
+            print(f"- Spend this cycle: _unavailable: {why}_")
+        else:
+            grand = sum(U.total(r) for r in recs)
+            fams = U.summarize(recs, lambda r: U.family(r["model"]))
+            print(f"- Spend this cycle (measured): **{U.millions(grand)}M tokens**, " + ", ".join(f"{g['key']} {100 * g['total'] / grand:.0f}%" for g in fams if grand))
     print(f"- Backlog: " + (", ".join(f"{k} {v}" for k, v in sorted(counts.items())) or "empty"))
     print(f"- Open questions for CEO: **{len(ceo_q)}** ({all_open - len(ceo_q)} open for other roles)")
     lessons = len(list((CO / "knowledge").glob("lesson-*.md")))
@@ -703,6 +790,8 @@ def cmd_report(args) -> None:
     lines += ["", "## Budget", ""]
     lines.append(f"- Elapsed (from ledger): {cycle_elapsed(st, all_ev)}; budget: {st.get('budget') or 'unspecified'}")
     lines += [f"- {e['summary']}" for e in ev if e["event"] == "budget.consumed"] or ["- _no budget.consumed events logged_"]
+    lines += ["", "## Spend (measured from transcripts)", ""]
+    lines += spend_lines(cycle)
     write_lf(name, "\n".join(lines) + "\n", encoding="utf-8")
     print(name.relative_to(ROOT).as_posix())
 
@@ -789,7 +878,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     s = sub.add_parser("gate"); s.add_argument("what", choices=["charter", "plan", "release", "item"]); s.add_argument("--ref"); s.set_defaults(fn=cmd_gate)
 
-    s = sub.add_parser("status"); s.set_defaults(fn=cmd_status)
+    s = sub.add_parser("status"); s.add_argument("--no-spend", action="store_true", help="skip reading transcripts (used by the session hook)"); s.set_defaults(fn=cmd_status)
+    s = sub.add_parser("usage", help="measured token usage from Claude Code transcripts")
+    s.add_argument("--cycle", type=int, help="only this cycle (0 = kickoff and planning)")
+    s.add_argument("--by", choices=["role", "model", "item", "cycle"], default="role")
+    s.add_argument("--json", action="store_true")
+    s.set_defaults(fn=cmd_usage)
     s = sub.add_parser("report"); s.add_argument("--cycle", type=int); s.set_defaults(fn=cmd_report)
     s = sub.add_parser("journal"); s.add_argument("--date"); s.set_defaults(fn=cmd_journal)
     s = sub.add_parser("consolidate"); s.set_defaults(fn=cmd_consolidate)

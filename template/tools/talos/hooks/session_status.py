@@ -19,7 +19,7 @@ def main() -> int:
     if not (cwd / "company").exists() or not cli.exists():
         return 0
     try:
-        out = subprocess.run([sys.executable, str(cli), "status"], cwd=cwd, capture_output=True, text=True, timeout=20)
+        out = subprocess.run([sys.executable, str(cli), "status", "--no-spend"], cwd=cwd, capture_output=True, text=True, timeout=20)
         if out.returncode == 0 and out.stdout.strip():
             print("<talos-status>\n" + out.stdout.strip() + "\n</talos-status>\n"
                   "This project runs as a virtual company. Read the CLAUDE.md section 'Talos' before acting. "
