@@ -22,6 +22,9 @@ Commands:
     gate charter|plan|release|item   exit 1 unless the gate is satisfied
     status                       print the dashboard (markdown)
     report [--cycle N]           write company/reports/cycle-NNN.md
+    events [--cycle N]           one line per ledger event
+    context ITEM --role R        write the context pack one role needs for one item
+    spec lint [SPEC ...]         check specs against the handoff contract
     usage [--cycle N] [--by ...] measured token usage from Claude Code transcripts
     journal [--date YYYY-MM-DD]  render ledger to company/journal/
     consolidate                  rebuild knowledge/INDEX.md and flag duplicates
@@ -56,13 +59,15 @@ EVENT_TYPES = {
     "release.proposed", "release.approved", "release.shipped",
     "lesson.recorded", "budget.consumed",
     "cycle.started", "cycle.ended", "retro.completed",
-    "spec.amended", "environment.updated", "followup.raised", "note",
+    "spec.amended", "environment.updated", "followup.raised", "run.completed", "note",
 }
 
 ITEM_STATUSES = ["proposed", "ready", "assigned", "in_progress", "blocked",
                  "completed", "verified", "rejected", "shipped"]
 
 TIERS = {"executive", "review", "execution", "mechanical", "ceo", "unknown"}
+
+RISKS = ["low", "normal", "high"]
 
 
 # ----------------------------------------------------------------- helpers
@@ -273,6 +278,10 @@ def cmd_init(args) -> None:
         LEDGER.touch()
     if not STATE.exists():
         write_state({"cycle": 0, "cycle_open": False, "counters": {}})
+    if getattr(args, "teams", None):
+        st = read_state()
+        st["teams"] = [t.strip() for t in args.teams.split(",") if t.strip()]
+        write_state(st)
     if not (CO / "brief.md").exists() and getattr(args, "brief", None):
         write_lf((CO / "brief.md"), Path(args.brief).read_text(encoding="utf-8"), encoding="utf-8")
     print(f"talos: scaffold ready at {CO}")
@@ -352,7 +361,7 @@ def cmd_item_new(args) -> None:
     fm = {
         "id": iid, "title": args.title, "status": "proposed",
         "owner": args.owner or "", "spec": args.spec or "", "branch": "",
-        "priority": args.priority or "P2", "cycle": read_state().get("cycle", 0),
+        "priority": args.priority or "P2", "risk": args.risk or "normal", "cycle": read_state().get("cycle", 0),
         "created": now(), "updated": now(),
     }
     body = "## Description\n\n" + (args.description or "_TBD_") + "\n\n## Acceptance criteria\n\n"
@@ -380,7 +389,7 @@ def cmd_item_set(args) -> None:
             die(f"refusing to mark {args.item_id} {args.status} without --evidence (principle: evidence or it did not happen)")
         fm["status"] = args.status
         changed.append(f"status={args.status}")
-    for k in ("owner", "spec", "branch", "priority", "commit"):
+    for k in ("owner", "spec", "branch", "priority", "commit", "risk"):
         v = getattr(args, k, None)
         if v:
             fm[k] = v
@@ -620,6 +629,211 @@ def cmd_gate(args) -> None:
         print(f"gate open: {args.ref} verified {verified['id']}")
 
 
+# ----------------------------------------------------------------- lean context: brief status, events, context packs, spec lint
+
+def status_brief(st: dict, ev: list[dict]) -> None:
+    """A few lines a fresh phase session can start from instead of reading the record."""
+    items = load_items()
+    fm, _ = parse_frontmatter((CO / "charter.md").read_text(encoding="utf-8"))
+    env_ok = (CO / "environment.md").exists() and "_not probed_" not in (CO / "environment.md").read_text(encoding="utf-8")
+    plan = latest(ev, "plan.approved")
+    by: dict[str, list[str]] = {}
+    for it in items:
+        by.setdefault(it.get("status", "?"), []).append(it["id"] + ("" if it.get("risk", "normal") == "normal" else f"({it['risk']})"))
+    print(f"talos: cycle {st.get('cycle', 0)} {'open' if st.get('cycle_open') else 'closed'} | charter {fm.get('status', 'draft')} | "
+          f"plan {'approved' if plan else 'not approved'} | environment {'probed' if env_ok else 'NOT probed'} | teams {','.join(st.get('teams') or ['all'])}")
+    print("items: " + (" | ".join(f"{s} {', '.join(by[s])}" for s in ITEM_STATUSES if s in by) or "none"))
+    print("CEO questions open: " + (", ".join(open_ceo_questions()) or "none"))
+    for e in ev[-3:]:
+        print(f"last: {e['ts'][5:16]} {e['actor']} {e['event']} {e.get('ref') or ''}".rstrip())
+
+
+def cmd_events(args) -> None:
+    """One line per ledger event, for retros and phase sessions (cheaper than reading ledger.jsonl)."""
+    ensure_scaffold()
+    for e in read_ledger():
+        if args.cycle is not None and e.get("cycle") != args.cycle:
+            continue
+        if args.type and not e["event"].startswith(args.type):
+            continue
+        ev = f" [evidence: {'; '.join(e['evidence'])}]" if e.get("evidence") else ""
+        print(f"{e['id']} {e['ts'][5:16]} {e['actor']} {e['event']} {e.get('ref') or '-'}: {e.get('summary', '')}{ev}")
+
+
+# Lesson tags each role should see, besides its own name, 'general' and the item id.
+ROLE_TAGS = {
+    "engineer": ["engineering", "implementation", "code"],
+    "devops-engineer": ["devops", "infrastructure", "docker", "deploy"],
+    "test-engineer": ["testing", "qa", "verification"],
+    "technical-writer": ["docs", "documentation"],
+    "ux-designer": ["ux", "design", "frontend"],
+    "code-reviewer": ["review", "engineering", "code"],
+    "security-reviewer": ["security", "review"],
+    "chief-architect": ["architecture", "specs", "engineering"],
+    "head-of-qa": ["testing", "qa"],
+}
+
+HANDBACK = """```
+ITEM: {item}
+STATUS: completed | blocked | needs_question
+BRANCH: vc/{item_lower}
+COMMIT: <hash>
+CHANGED: <files>
+EVIDENCE: <test command and result, or artefact path>
+QUESTIONS: <none, or exact questions with options>
+NOTES: <anything the reviewer must know>
+```"""
+
+
+def _demote(text: str) -> str:
+    """Push embedded headings one level down so the pack keeps one outline."""
+    return re.sub(r"^(#{1,4}) ", lambda m: "##" + m.group(1) + " ", text.strip(), flags=re.M)
+
+
+def _file_for(folder: str, ident: str) -> Path | None:
+    hits = sorted((CO / folder).glob(f"{ident}*.md")) or sorted((CO / folder).glob(f"{ident.lower()}*.md"))
+    return hits[0] if hits else None
+
+
+def cmd_context(args) -> None:
+    """Write one file holding exactly what a role needs for one item."""
+    ensure_scaffold()
+    ip = item_path(args.item_id)
+    item_text = ip.read_text(encoding="utf-8")
+    fm, _ = parse_frontmatter(item_text)
+    parts = [f"# Context pack: {args.item_id} for {args.role}", "",
+             f"_Generated {now()} by `talos context`. Work from this file; do not read the rest of `company/`. "
+             "If something you need is missing, say so in your hand-back instead of searching for it._", "",
+             "## Item", "", _demote(parse_frontmatter(item_text)[1]), ""]
+    spec_text = ""
+    sp = None
+    ref = str(fm.get("spec") or "")
+    if ref and (ROOT / ref).is_file():
+        sp = ROOT / ref
+    elif re.search(r"SPEC-\d{4}", ref):
+        sp = _file_for("specs", re.search(r"SPEC-\d{4}", ref).group(0))
+    if not sp:
+        sp = next((p for p in sorted((CO / "specs").glob("SPEC-*.md"))
+                   if parse_frontmatter(p.read_text(encoding="utf-8"))[0].get("item") == args.item_id), None)
+    if sp:
+        if True:
+            spec_text = sp.read_text(encoding="utf-8")
+            parts += [f"## Spec ({sp.relative_to(ROOT).as_posix()})", "", _demote(parse_frontmatter(spec_text)[1]), ""]
+    adrs = sorted(set(re.findall(r"\bADR-\d{4}\b", item_text + spec_text)))
+    if adrs:
+        parts += ["## Decisions referenced", ""]
+    for a in adrs:
+        ap = _file_for("decisions", a)
+        if ap:
+            afm, abody = parse_frontmatter(ap.read_text(encoding="utf-8"))
+            m = re.search(r"^## Decision\s*\n(.*?)(?=^## |\Z)", abody, re.M | re.S)
+            ruling = (m.group(1).strip() if m else abody.strip()).replace("\n#", "\n####")
+            parts += [f"### {a}: {afm.get('title', '')}", "", ruling, f"_(full record: {ap.relative_to(ROOT).as_posix()})_", ""]
+    envp = CO / "environment.md"
+    if envp.exists():
+        parts += ["## Environment", "", _demote(parse_frontmatter(envp.read_text(encoding="utf-8"))[1]), ""]
+    want = {args.role, "general", args.item_id.lower(), args.item_id} | set(ROLE_TAGS.get(args.role, []))
+    rank = {"high": 0, "medium": 1, "low": 2}
+    lessons = []
+    for p in (CO / "knowledge").glob("lesson-*.md"):
+        lfm, lbody = parse_frontmatter(p.read_text(encoding="utf-8"))
+        tags = lfm.get("applies_to") or []
+        tags = [tags] if isinstance(tags, str) else tags
+        if want & {t.strip().lower() for t in tags} or args.item_id in lbody:
+            lessons.append((rank.get(lfm.get("confidence"), 3), lfm.get("recorded", ""), lbody.strip()))
+    lessons.sort(key=lambda x: (x[0], [-ord(c) for c in x[1]]))
+    if lessons:
+        parts += ["## Lessons that apply", ""] + [b + "\n" for _, _, b in lessons[:args.max_lessons]]
+    if args.role in ("engineer", "devops-engineer", "technical-writer", "ux-designer"):
+        parts += ["## Hand-back (return exactly this block)", "", HANDBACK.format(item=args.item_id, item_lower=args.item_id.lower()), ""]
+    out = Path(args.out) if args.out else CO / ".context" / f"{args.item_id}-{args.role}.md"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    write_lf(out, "\n".join(parts).rstrip("\n") + "\n", encoding="utf-8")
+    words = len(" ".join(parts).split())
+    print(f"{out.resolve().as_posix()} ({words} words, {len(adrs)} decisions, {min(len(lessons), args.max_lessons)} lessons)")
+
+
+SPEC_SECTIONS = ["## Goal", "## Non-goals", "## Files and modules in scope", "## Acceptance criteria"]
+RESULT_WORDS = re.compile(r"\b(prints?|exits?|returns?|passe[sd]|fails?|shows?|contains?|equals?|outputs?|responds?|status)\b|->|→|=>", re.I)
+
+
+def lint_spec(path: Path, max_lines: int = 120) -> tuple[list[str], list[str]]:
+    """Mechanical checks of the handoff contract. Returns (errors, warnings)."""
+    text = path.read_text(encoding="utf-8")
+    errors, warnings = [], []
+    _, body = parse_frontmatter(text)
+    for sec in SPEC_SECTIONS:
+        if not re.search(rf"^{re.escape(sec)}\b", body, re.M):
+            errors.append(f"missing section '{sec}'")
+    prose, fence = 0, False
+    for line in body.splitlines():
+        if line.lstrip().startswith("```"):
+            fence = not fence
+            continue
+        if not fence and line.strip():
+            prose += 1
+    if prose > max_lines:
+        errors.append(f"{prose} non-blank lines outside code blocks; the budget is {max_lines} (move detail into verbatim blocks or split the item)")
+    sections = re.split(r"^(## .+)$", body, flags=re.M)
+    sec = {sections[i].strip(): sections[i + 1] for i in range(1, len(sections) - 1, 2)}
+    acc = next((v for k, v in sec.items() if k.startswith("## Acceptance")), "")
+    lines = [l.strip() for l in acc.splitlines() if re.match(r"\s*- \[[ x]\]", l)]
+    if not lines or all(re.fullmatch(r"- \[[ x]\]\s*", l) for l in lines):
+        errors.append("no acceptance criteria")
+    executed_note = bool(re.search(r"(?<![a-z])executed\b", acc, re.I))  # "_Executed by ..." counts; "UNEXECUTED" does not
+    for n, l in enumerate(lines, 1):
+        if re.fullmatch(r"- \[[ x]\]\s*", l):
+            continue
+        if "UNEXECUTED" in l:
+            continue
+        if "`" not in l:
+            errors.append(f"acceptance line {n} has no command or test name in backticks: {l[:70]}")
+        elif not RESULT_WORDS.search(l):
+            errors.append(f"acceptance line {n} names no expected result (prints, exits, returns, passes ...): {l[:70]}")
+    if lines and not executed_note and not all("UNEXECUTED" in l for l in lines if not re.fullmatch(r"- \[[ x]\]\s*", l)):
+        errors.append("acceptance section does not say the architect executed the lines; mark each line it could not run UNEXECUTED")
+    scope = next((v for k, v in sec.items() if k.startswith("## Files and modules")), "")
+    for l in scope.splitlines():
+        low = l.lower()
+        if "do not touch" in low or "not touch" in low or re.search(r"\bnew\b", low):
+            continue
+        for tok in re.findall(r"`([^`]+)`", l):
+            if ("/" in tok or re.search(r"\.\w{1,5}$", tok)) and not re.search(r"[*?<>{}\s]", tok) and not (ROOT / tok).exists():
+                warnings.append(f"file in scope does not exist and is not marked new: {tok}")
+    for ref in sorted(set(re.findall(r"\bADR-\d{4}\b", body))):
+        if not _file_for("decisions", ref):
+            errors.append(f"references {ref}, which is not in company/decisions/")
+    for ref in sorted(set(re.findall(r"\bLESSON-\d{4}\b", body))):
+        if not _file_for("knowledge", ref):
+            errors.append(f"references {ref}, which is not in company/knowledge/")
+    return errors, warnings
+
+
+def cmd_spec_lint(args) -> None:
+    ensure_scaffold()
+    targets = []
+    for s in args.specs or ["all"]:
+        if s == "all":
+            targets += sorted(p for p in (CO / "specs").glob("SPEC-*.md"))
+        else:
+            p = Path(s) if Path(s).exists() else _file_for("specs", s)
+            if not p:
+                die(f"spec {s} not found")
+            targets.append(p)
+    bad = 0
+    for p in targets:
+        errors, warnings = lint_spec(p, args.max_lines)
+        mark = "FAIL" if errors else "ok"
+        print(f"{mark}  {p.relative_to(ROOT).as_posix() if p.is_absolute() and ROOT in p.parents else p}")
+        for e in errors:
+            print(f"   error: {e}")
+        for w in warnings:
+            print(f"   warn:  {w}")
+        bad += bool(errors)
+    if bad:
+        sys.exit(1)
+
+
 # ----------------------------------------------------------------- usage (token spend)
 
 def load_usage(cycle: int | None = None):
@@ -705,6 +919,9 @@ def cmd_status(args) -> None:
     st = read_state()
     ev = read_ledger()
     items = load_items()
+    if args.brief:
+        status_brief(st, ev)
+        return
     fm, _ = parse_frontmatter((CO / "charter.md").read_text(encoding="utf-8"))
     counts: dict[str, int] = {}
     for it in items:
@@ -825,7 +1042,7 @@ def build_parser() -> argparse.ArgumentParser:
         sp.add_argument("--actor", help="role making the entry (default: $TALOS_ACTOR)")
         sp.add_argument("--tier", choices=sorted(TIERS), help="role tier (default: $TALOS_TIER)")
 
-    s = sub.add_parser("init"); s.add_argument("--brief"); s.set_defaults(fn=cmd_init)
+    s = sub.add_parser("init"); s.add_argument("--brief"); s.add_argument("--teams", help="comma-separated teams staffed (recorded by init.py)"); s.set_defaults(fn=cmd_init)
 
     s = sub.add_parser("log"); common(s)
     s.add_argument("event"); s.add_argument("--ref"); s.add_argument("--summary"); s.add_argument("--evidence", action="append"); s.add_argument("--branch")
@@ -845,10 +1062,12 @@ def build_parser() -> argparse.ArgumentParser:
     s = itsub.add_parser("new"); common(s)
     s.add_argument("--title", required=True); s.add_argument("--description"); s.add_argument("--owner"); s.add_argument("--spec")
     s.add_argument("--priority", choices=["P0", "P1", "P2", "P3"]); s.add_argument("--acceptance", action="append")
+    s.add_argument("--risk", choices=RISKS, help="review depth: low skips the Opus reviewers (default normal)")
     s.set_defaults(fn=cmd_item_new)
     s = itsub.add_parser("set"); common(s)
     s.add_argument("item_id"); s.add_argument("--status", choices=ITEM_STATUSES); s.add_argument("--owner"); s.add_argument("--spec")
     s.add_argument("--branch"); s.add_argument("--commit", help="commit hash the evidence refers to"); s.add_argument("--priority")
+    s.add_argument("--risk", choices=RISKS)
     s.add_argument("--acceptance", action="append", help="append an acceptance criterion (repeatable)")
     s.add_argument("--evidence", action="append"); s.add_argument("--summary")
     s.set_defaults(fn=cmd_item_set)
@@ -857,6 +1076,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     sp = sub.add_parser("spec"); spsub = sp.add_subparsers(dest="sub", required=True)
     s = spsub.add_parser("new"); common(s); s.add_argument("--title", required=True); s.add_argument("--item"); s.set_defaults(fn=cmd_spec_new)
+    s = spsub.add_parser("lint", help="check specs against the handoff contract; exit 1 on errors"); s.add_argument("specs", nargs="*", help="SPEC ids or paths (default all)")
+    s.add_argument("--max-lines", type=int, default=120); s.set_defaults(fn=cmd_spec_lint)
 
     d = sub.add_parser("decision"); dsub = d.add_subparsers(dest="sub", required=True)
     s = dsub.add_parser("add"); common(s)
@@ -878,7 +1099,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     s = sub.add_parser("gate"); s.add_argument("what", choices=["charter", "plan", "release", "item"]); s.add_argument("--ref"); s.set_defaults(fn=cmd_gate)
 
-    s = sub.add_parser("status"); s.add_argument("--no-spend", action="store_true", help="skip reading transcripts (used by the session hook)"); s.set_defaults(fn=cmd_status)
+    s = sub.add_parser("status"); s.add_argument("--no-spend", action="store_true", help="skip reading transcripts (used by the session hook)")
+    s.add_argument("--brief", action="store_true", help="four lines: state, items by status, CEO questions, last events"); s.set_defaults(fn=cmd_status)
+    s = sub.add_parser("events", help="one line per ledger event"); s.add_argument("--cycle", type=int); s.add_argument("--type", help="event type prefix, e.g. review or item.")
+    s.set_defaults(fn=cmd_events)
+    s = sub.add_parser("context", help="write a context pack: what one role needs for one item"); s.add_argument("item_id"); s.add_argument("--role", required=True)
+    s.add_argument("--out", help="output path (default company/.context/<item>-<role>.md)"); s.add_argument("--max-lessons", type=int, default=8); s.set_defaults(fn=cmd_context)
     s = sub.add_parser("usage", help="measured token usage from Claude Code transcripts")
     s.add_argument("--cycle", type=int, help="only this cycle (0 = kickoff and planning)")
     s.add_argument("--by", choices=["role", "model", "item", "cycle"], default="role")

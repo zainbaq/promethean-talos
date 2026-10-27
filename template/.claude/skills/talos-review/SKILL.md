@@ -24,7 +24,7 @@ The CEO said: $ARGUMENTS
    - Release approval for specific items: `talos approve release --ref ITEM-xxxx --quote "<their exact words>"` per item. Then, only if they asked you to merge, `talos gate release --ref ITEM-xxxx` and `talos gate item --ref ITEM-xxxx` must both pass before you merge the branch. Log `release.shipped` after merging.
    - A rejection or change request: log `talos log note --ref <thing> --summary "CEO: <words>"` and create or re-open the backlog items the change requires via `head-of-product` if scope changed, or `chief-architect` if the design changed.
 
-3. Confirm back to the CEO in two lines what was recorded and what will happen next (`/talos-cycle` or `/talos-retro`).
+3. Confirm back to the CEO in two lines what was recorded and what will happen next (`tools/talos/run plan`, `cycle` or `retro`).
 
 ## Do not
 - Paraphrase the CEO in `--quote`. Use their words.

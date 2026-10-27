@@ -24,15 +24,15 @@ Run `tools/talos/talos gate charter`. If it is closed, stop and tell the CEO the
 
 4. **Specs for every item, not only the first cycle's.** Spawn `chief-architect` again (or continue it) to write one spec per backlog item with `talos spec new --item ITEM-xxxx`, filling every section. In the first live runs the plan carried specs for only the first cycle, so the next cycle opened with an empty ready queue and engineers sat idle while specs were written. If an item genuinely cannot be specced until earlier work lands, the spec says what it waits for and the item stays `proposed`; everything else is specced and `ready` before the plan gate. Specs must link the ADRs and the pre-mortem lessons that constrain them, reference `company/environment.md` for machine facts instead of restating them, stay within the architect's length budget (about 120 lines for a small item), mark verbatim blocks explicitly, and state that the architect executed every acceptance command before handoff.
 
-5. **Test strategy.** Spawn `head-of-qa` to write the test strategy spec and attach acceptance tests to each ready item.
+5. **Test strategy.** Spawn `head-of-qa` to write the test strategy spec and attach acceptance tests to each ready item. Then the architect sets `--risk` on every item and runs `talos spec lint`; every spec of a ready item must pass.
 
-6. **Your review.** Read every ready item and spec. Apply the handoff contract: goal, non-goals, files in scope, interfaces, executable acceptance criteria, budget, linked ADRs and lessons, and the architect's statement that it executed the acceptance commands. Send back anything that fails. Check that no two concurrent specs touch the same files. Check the budget covers review and verification rounds, not only engineering.
+6. **Your review.** Run `talos spec lint` (all specs) and `talos item list --status ready`; read a spec in full only where lint fails or the risk looks wrong. Apply the handoff contract: goal, non-goals, files in scope, interfaces, executable acceptance criteria, budget, linked ADRs and lessons, and the architect's statement that it executed the acceptance commands. Send back anything that fails. Check that no two concurrent specs touch the same files. Check the budget covers review and verification rounds, not only engineering.
 
 7. **Propose.** Log `talos log plan.proposed --summary "<n> items, <m> ADRs, first cycle: <ids>"`.
 
 8. **Ask the CEO.** Present on one screen: the architecture in five lines, the first cycle's items with one line each, the ADRs by title, the pre-mortem's top three risks and how the specs address them, and the budget. Ask for approval or changes.
 
-9. **Record.** `talos approve plan --quote "<CEO's exact words>"` on approval. Then tell the CEO that `/talos-cycle` will run the first cycle and report back.
+9. **Record.** `talos approve plan --quote "<CEO's exact words>"` on approval. Then tell the CEO that the first cycle runs next (`tools/talos/run cycle`) and reports back.
 
 ## Do not
 - Let an item into `ready` without a spec and acceptance tests.

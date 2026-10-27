@@ -29,17 +29,20 @@ Requirements: Claude Code, git, and [`uv`](https://docs.astral.sh/uv/) (`winget 
 
 ```bash
 git clone https://github.com/zainbaq/promethean-talos
-python promethean-talos/init.py /path/to/your/project --brief my-brief.md
+python promethean-talos/init.py /path/to/your/project --brief my-brief.md --teams core,design
+cd /path/to/your/project && tools/talos/run kickoff company/brief.md
 ```
 
-Then open the project in Claude Code and either run `/talos-kickoff` or just describe what you want to build. The company will:
+`--teams` staffs only the teams the project needs (`core` always; `research`, `design` when the work calls for them; see `tools/talos/teams.json`). Unstaffed roles are not stamped and cost nothing.
+
+`tools/talos/run <phase>` runs each phase (`kickoff`, `plan`, `review "<your words>"`, `cycle`, `retro`, `status`) as a fresh headless session with lean flags and the right model for the phase, and logs its cost to the ledger. You can also open the project in Claude Code and describe what you want; the session will use the launcher. The company will:
 
 1. Research (if the brief needs it) and draft a **charter**. You approve it.
 2. Write ADRs, specs, a backlog with acceptance criteria and a test strategy. You approve the **plan**.
 3. Run a **cycle**: engineers implement items in parallel worktrees, reviewers review, QA verifies, and you get a one-screen report with yes/no questions and branches ready to merge. You approve **releases**.
 4. Run a **retro** that turns surprises into cited lessons the next cycle reads.
 
-Say "approved" (or what should change) at each gate. `/talos-review` records your words. `/talos-status` tells you where things stand.
+Say "approved" (or what should change) at each gate; `tools/talos/run review "<your words>"` records them. `tools/talos/talos status --brief` tells you where things stand and `tools/talos/talos usage` what it cost, measured from Claude Code's transcripts.
 
 ## The cast
 

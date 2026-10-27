@@ -1,5 +1,5 @@
 #!/bin/sh
-# company — entry point for the Talos record CLI.
+# talos: entry point for the Talos record CLI.
 # Usage: tools/talos/talos <command> [options]   (see --help)
 d=$(dirname "$0")
 exec "$d/pyrun" "$d/talos.py" "$@"

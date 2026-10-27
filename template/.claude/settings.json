@@ -4,6 +4,8 @@
     "allow": [
       "Bash(tools/talos/talos *)",
       "Bash(./tools/talos/talos *)",
+      "Bash(tools/talos/run *)",
+      "Bash(./tools/talos/run *)",
       "Bash(uv venv *)",
       "Bash(uv pip install *)",
       "Bash(uv python install *)",

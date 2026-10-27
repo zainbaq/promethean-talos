@@ -1,0 +1,17 @@
+{
+  "_comment": "Teams a charter can staff. init.py --teams picks which agents are stamped; skills and the record CLI are shared. Unstaffed roles are not stamped, so they cost nothing per session.",
+  "core": {
+    "description": "Runs every project: orchestration, product, architecture, QA, learning, review, engineering, verification, docs and record keeping.",
+    "agents": ["chief-of-staff", "head-of-product", "chief-architect", "head-of-qa", "learning-officer",
+               "code-reviewer", "security-reviewer", "engineer", "test-engineer", "devops-engineer",
+               "technical-writer", "librarian"]
+  },
+  "research": {
+    "description": "Market and technical research before the charter. Staff when the brief has open questions about users, market or feasibility.",
+    "agents": ["head-of-research", "research-analyst"]
+  },
+  "design": {
+    "description": "User flows, screen specs and copy. Staff for any project with a user interface.",
+    "agents": ["ux-designer"]
+  }
+}

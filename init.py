@@ -2,11 +2,13 @@
 """
 init.py — stamp the Talos framework into a target project.
 
-    python init.py /path/to/project [--brief brief.md] [--force]
+    python init.py /path/to/project [--brief brief.md] [--teams core,design] [--force] [--prune]
 
 What it does (idempotent; safe to re-run to pick up framework updates):
-  1. Copies template/.claude/agents/*  and template/.claude/skills/*  into the project
-     (existing files are overwritten only with --force; otherwise kept and reported).
+  1. Copies the agents of the staffed teams (template/tools/talos/teams.json; default: all) and
+     template/.claude/skills/* into the project. Existing files are overwritten only with
+     --force. Re-running with more teams adds their agents; --prune removes stamped agents
+     of teams no longer listed.
   2. Merges template/.claude/settings.json into the project's .claude/settings.json
      (hooks are appended if not already present; permissions are unioned).
   3. Copies template/tools/talos/ (the record CLI) into the project.
@@ -55,6 +57,41 @@ def copy_tree(src: Path, dst: Path, force: bool) -> tuple[list[str], list[str]]:
         shutil.copy2(p, target)
         written.append(str(rel))
     return written, kept
+
+
+def load_teams() -> dict:
+    t = json.loads((TEMPLATE / "tools" / "talos" / "teams.json").read_text(encoding="utf-8"))
+    return {k: v for k, v in t.items() if not k.startswith("_")}
+
+
+def stamp_agents(target: Path, teams: list[str], force: bool, prune: bool) -> str:
+    catalog = load_teams()
+    unknown = [t for t in teams if t not in catalog]
+    if unknown:
+        sys.exit(f"init: unknown team(s) {', '.join(unknown)}; known: {', '.join(catalog)}")
+    want = {a for t in teams for a in catalog[t]["agents"]}
+    dst = target / ".claude" / "agents"
+    dst.mkdir(parents=True, exist_ok=True)
+    written, kept, removed = [], [], []
+    for name in sorted(want):
+        src, out = TEMPLATE / ".claude" / "agents" / f"{name}.md", dst / f"{name}.md"
+        if out.exists() and not force:
+            kept.append(name)
+            continue
+        shutil.copy2(src, out)
+        written.append(name)
+    if prune:
+        every = {a for v in catalog.values() for a in v["agents"]}
+        for name in sorted(every - want):
+            if (dst / f"{name}.md").exists():
+                (dst / f"{name}.md").unlink()
+                removed.append(name)
+    msg = f".claude/agents: teams {','.join(teams)}: {len(written)} written, {len(kept)} kept"
+    if kept and not force:
+        msg += " (re-run with --force to overwrite)"
+    if removed:
+        msg += f", {len(removed)} pruned ({', '.join(removed)})"
+    return msg
 
 
 def merge_settings(src: Path, dst: Path) -> str:
@@ -110,6 +147,8 @@ def main() -> None:
     ap.add_argument("target", help="path to the project to stamp")
     ap.add_argument("--brief", help="path to a brief.md to seed company/brief.md")
     ap.add_argument("--force", action="store_true", help="overwrite existing agent/skill/tool files")
+    ap.add_argument("--teams", help="comma-separated teams to staff (see template/tools/talos/teams.json); default: every team")
+    ap.add_argument("--prune", action="store_true", help="remove stamped agents of teams not in --teams")
     ap.add_argument("--python", default="3.12", help="Python version for the project venv created with uv (default 3.12)")
     args = ap.parse_args()
 
@@ -125,14 +164,18 @@ def main() -> None:
         pass
     print(f"Stamping Talos into {target}\n")
 
-    for sub in ("agents", "skills", "rules"):
+    teams = [t.strip() for t in (args.teams or ",".join(load_teams())).split(",") if t.strip()]
+    if args.teams and "core" not in teams:
+        sys.exit("init: the core team is required (add core to --teams)")
+    print(stamp_agents(target, teams, args.force, args.prune))
+    for sub in ("skills", "rules"):
         w, k = copy_tree(TEMPLATE / ".claude" / sub, target / ".claude" / sub, args.force)
         print(f".claude/{sub}: {len(w)} written, {len(k)} kept" + (f" (re-run with --force to overwrite: {', '.join(k[:5])}{'…' if len(k) > 5 else ''})" if k else ""))
 
     print(f".claude/settings.json: {merge_settings(TEMPLATE / '.claude' / 'settings.json', target / '.claude' / 'settings.json')}")
 
     w, k = copy_tree(TEMPLATE / "tools", target / "tools", True)
-    for name in ("talos", "pyrun"):
+    for name in ("talos", "run", "pyrun"):
         try:
             p = target / "tools" / "talos" / name
             p.chmod(p.stat().st_mode | 0o111)
@@ -151,7 +194,7 @@ def main() -> None:
     else:
         print(".gitattributes: kept (yours)")
     gi = target / ".gitignore"
-    wanted = ["__pycache__/", "*.pyc", ".pytest_cache/", ".venv/", ".claude/worktrees/", ".claude/settings.local.json"]
+    wanted = ["__pycache__/", "*.pyc", ".pytest_cache/", ".venv/", ".claude/worktrees/", ".claude/settings.local.json", "company/.context/"]
     existing = gi.read_text(encoding="utf-8").splitlines() if gi.exists() else []
     missing = [w for w in wanted if w not in existing]
     if missing:
@@ -181,12 +224,13 @@ def main() -> None:
             print(".venv: NOT created. uv was not found on PATH; install it (winget install astral-sh.uv) and re-run, "
                   "or let the kickoff procedure create the venv. Until then the record CLI falls back to TALOS_PYTHON.")
 
-    cmd = [sys.executable, str(target / "tools" / "talos" / "talos.py"), "init"]
+    cmd = [sys.executable, str(target / "tools" / "talos" / "talos.py"), "init", "--teams", ",".join(teams)]
     if args.brief:
         cmd += ["--brief", str(Path(args.brief).resolve())]
     subprocess.run(cmd, cwd=target, check=True)
 
-    print("\nDone. Next: open the project in Claude Code and run /talos-kickoff (or just describe what you want to build).")
+    print("\nDone. Next: from the project root run `tools/talos/run kickoff company/brief.md` in the background "
+          "(or open the project in Claude Code and describe what you want to build).")
 
 
 if __name__ == "__main__":

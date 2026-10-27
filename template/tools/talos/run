@@ -1,0 +1,5 @@
+#!/bin/sh
+# talos run: run one phase as a fresh, lean, headless Claude Code session.
+# Usage: tools/talos/run <phase> [text...]   (see --help)
+d=$(dirname "$0")
+exec "$d/pyrun" "$d/run.py" "$@"

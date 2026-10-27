@@ -5,10 +5,10 @@ This project is run by a virtual company: tiered Claude Code agents with one sha
 ### Tiers and models
 - **Executive (Fable):** `chief-of-staff`, `head-of-product`, `chief-architect`, `head-of-research`, `head-of-qa`, `learning-officer`. They think, decide and write specs.
 - **Review (Opus):** `code-reviewer`, `security-reviewer`. They report findings; they never fix.
-- **Execution (Sonnet):** `engineer`, `test-engineer`, `research-analyst`, `ux-designer`, `devops-engineer`, `technical-writer`. They execute specs exactly. An ambiguous spec means they stop and ask; they never guess.
+- **Execution (Sonnet):** `engineer`, `test-engineer`, `research-analyst`, `ux-designer`, `devops-engineer`, `technical-writer`. They execute specs exactly. An ambiguous spec means they stop and ask; they never guess. The **Coordinator** is the Sonnet main session that runs the mechanical phases (cycle verify and close, retro gathering) exactly as the skills say and escalates every judgment call.
 - **Mechanical (Haiku):** `librarian`. Formatting, indexes, journal rendering.
 
-Definitions live in `.claude/agents/`. The main session acts as Chief of Staff when running a `/talos-*` skill.
+Definitions live in `.claude/agents/`; only the teams the charter staffs are stamped (`tools/talos/teams.json`). The main session acts as Chief of Staff or Coordinator, as the skill says.
 
 ### The record (`company/`)
 `charter.md`, `environment.md` (machine facts: interpreter, test command, base branch, shell quirks; probed at kickoff, read by every role), `backlog/ITEM-*.md`, `specs/SPEC-*.md`, `decisions/ADR-*.md`, `questions.md` (each question names who answers it: `--for ceo|architect|product|qa`), `ledger.jsonl` (append-only source of truth), `journal/`, `knowledge/` (cited lessons + `INDEX.md`), `reports/`, `retros/`, `research/`.
@@ -28,10 +28,12 @@ Read `tools/talos/talos --help`. Never hand-edit `ledger.jsonl` or `state.json`;
 ### Procedures (skills)
 `/talos-kickoff` brief → charter · `/talos-plan` charter → ADRs, specs, backlog, test strategy · `/talos-cycle` run one cycle · `/talos-review` record CEO decisions · `/talos-retro` lessons · `/talos-status` dashboard · `/talos-consolidate` knowledge upkeep.
 
-When the CEO describes something to build, run `/talos-kickoff`. When they answer questions or approve, run `/talos-review`. When they ask where things stand, `/talos-status`.
+**Run phases through the launcher, in the background:** `tools/talos/run kickoff|plan|review|cycle|cycle-build|cycle-verify|cycle-close|retro|status [text]`. Each phase gets a fresh session with lean flags (about 19k tokens of fixed context instead of about 57k), the right model for the phase, and a `run.completed` ledger event with its cost. Running a skill inline in a long conversation re-reads that whole conversation on every call.
+
+When the CEO describes something to build, run kickoff. When they answer questions or approve, run review with their exact words as the text. When they ask where things stand, `tools/talos/talos status --brief`, then `talos usage` if they ask what it cost.
 
 ### Handoff contract
-A spec hands from executive to execution only if it has: goal, non-goals, exact files in scope, interfaces and data shapes, executable acceptance criteria that the architect has itself executed, budget, linked ADRs and lessons, and a pointer to `company/environment.md` for machine facts. Executors return the hand-back block (ITEM, STATUS, BRANCH, COMMIT, CHANGED, EVIDENCE, QUESTIONS, NOTES). Technical questions from executors go to the Chief Architect; the CEO only sees scope and approval questions.
+A spec hands from executive to execution only if it has: goal, non-goals, exact files in scope, interfaces and data shapes, executable acceptance criteria that the architect has itself executed, budget, linked ADRs and lessons, and a pointer to `company/environment.md` for machine facts. `talos spec lint` checks the mechanical parts. Executors get a context pack (`talos context ITEM-xxxx --role <role>`) instead of reading the record, and return the hand-back block (ITEM, STATUS, BRANCH, COMMIT, CHANGED, EVIDENCE, QUESTIONS, NOTES). Each item carries a `risk` (low, normal, high) that sets review depth. Technical questions from executors go to the Chief Architect; the CEO only sees scope and approval questions.
 
 ### Where the product is
 Work happens on branches `vc/<item-id>` in worktrees. Nothing reaches the base branch until the CEO approves the release. Every cycle report states the repository path, base branch, and each verified item's branch and commit.

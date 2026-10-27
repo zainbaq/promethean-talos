@@ -1,7 +1,7 @@
 ---
 name: talos-cycle
-description: Run one execution cycle: assign ready items to engineers in parallel worktrees, collect hand-backs, review, verify from a fresh integration worktree, and produce the cycle report for the CEO. Use after the plan is approved, when the CEO says "run a cycle", "continue", or on a schedule.
-argument-hint: "[budget, e.g. '4h' or '3 items']"
+description: Run one execution cycle in three phases (build, verify, close): dispatch engineers in parallel worktrees, review, verify from a fresh integration worktree, and report to the CEO. Use after the plan is approved, when the CEO says "run a cycle" or "continue", or on a schedule.
+argument-hint: "[build|verify|close] [budget, e.g. '60 minutes' or '3 items']"
 allowed-tools:
   - Bash(tools/talos/talos *)
   - Bash(git *)
@@ -13,41 +13,55 @@ allowed-tools:
   - Agent
 ---
 
-You are running the CYCLE procedure as the Chief of Staff (read `.claude/agents/chief-of-staff.md`). Set `TALOS_ACTOR=chief-of-staff TALOS_TIER=executive` for CLI calls. Budget for this cycle: $ARGUMENTS (default: the charter's per-cycle budget). Read `company/environment.md` first; if it still says `_not probed_`, stop and run the kickoff environment step.
+Arguments: $ARGUMENTS
 
-## Gate
-`tools/talos/talos gate plan`. Closed means stop and ask the CEO.
+A cycle has three phases. Each normally runs in its own fresh session through `tools/talos/run cycle-build|cycle-verify|cycle-close` (or `tools/talos/run cycle` for all three), because one long session re-reads its whole history on every call. If the first argument is `build`, `verify` or `close`, run only that phase. With no phase argument, run the three in order in this session.
 
-## Steps
+**Start every phase the same way:** `tools/talos/talos status --brief`, then the lines of `company/environment.md` you need (base branch, test command). Do not read the rest of `company/`; the CLI and the context packs give you what you need. End every phase with the phase hand-back at the bottom of this file and nothing else.
 
-1. **Open the cycle.** `talos cycle start --budget "<budget>"`. Read `company/charter.md` for parallelism. `talos item list --status ready`. Note the base branch from `company/environment.md` (never assume `main`).
+Roles: **build** is run by the Chief of Staff (Fable; `TALOS_ACTOR=chief-of-staff TALOS_TIER=executive`). **verify** and **close** are run by the Coordinator (Sonnet; `TALOS_ACTOR=coordinator TALOS_TIER=execution`), who follows these steps exactly and escalates every judgment call: technical ones to a `chief-architect` subagent, scope ones as `talos ask --for ceo`.
 
-2. **Select.** Choose up to the parallelism limit of `ready` items whose specs do not overlap in files and that do not depend on each other. Prefer P0, then P1. If an item's spec fails the handoff contract, or does not state that the architect executed its acceptance commands, send it to `chief-architect` instead of an engineer and pick another.
+## Phase: build
 
-3. **Assign and dispatch in parallel.** For each selected item: `talos item set ITEM-xxxx --status assigned --owner <role> --branch vc/item-xxxx`, then `--status in_progress`. Spawn one `engineer` (or `devops-engineer`, `ux-designer`, `technical-writer` as the spec requires) per item, in the same message so they run concurrently. Give each: item id, spec path, branch name, base branch, the worktree command (`git worktree add "../<repo>-wt/<item-id>" -b vc/<item-id>` from the repository root), the relevant lines of `company/environment.md` (interpreter, test command, shell quirks), the lessons that apply (paste them), the rule "no writes to company/", and the hand-back format (ITEM, STATUS, BRANCH, COMMIT, CHANGED, EVIDENCE, QUESTIONS, NOTES).
-
-4. **Collect hand-backs.** For each returned hand-back:
+1. **Gate and open.** `talos gate plan` (closed: stop and ask the CEO). `talos cycle start --budget "<budget>"`; the budget comes from the arguments or the charter and covers review and verification, not only engineering.
+2. **Select.** `talos item list --status ready`. Choose up to the charter's parallelism of items whose specs do not overlap in files and do not depend on each other; P0 first. Run `talos spec lint <SPEC>` for each; a spec that fails goes to `chief-architect` to fix, and you pick another item.
+3. **Pack and dispatch in parallel.** For each item: `talos item set ITEM-xxxx --status in_progress --owner <role> --branch vc/item-xxxx`, then `talos context ITEM-xxxx --role <role>`, which prints the pack's absolute path. Spawn one `engineer` (or `devops-engineer`, `technical-writer`, `ux-designer`, as the spec requires) per item, all in one message so they run concurrently. Each dispatch prompt is short and names exactly one item: the pack path, the branch, the worktree command (`git worktree add "../<repo>-wt/<item-id>" -b vc/<item-id>` from the repository root), the rule "no writes to company/", and "return the hand-back block at the end of the pack". Everything else is in the pack; do not paste it.
+4. **Collect.** For each hand-back:
    - `completed`: `talos item set ITEM-xxxx --status completed --branch <branch> --commit <hash> --evidence "<EVIDENCE line>"`.
-   - `blocked` or `needs_question`: `talos item set ITEM-xxxx --status blocked --summary "<why>"` and one `talos ask` per question. Technical questions: `--for architect` and spawn `chief-architect` to answer (it logs a decision and amends the spec; close with `talos answer Q-xxxx "<its answer>" --by chief-architect`). Scope questions: `--for ceo`. The CEO never sees a question another role can answer.
-   - A hand-back that reports a spec criterion wrong as written is a success of the process: route it to the architect, do not fail the item for it.
+   - `blocked` or `needs_question`: `talos item set ITEM-xxxx --status blocked --summary "<why>"` and one `talos ask` per question. Technical: `--for architect`, spawn `chief-architect` to answer (it logs a decision and amends the spec), close with `talos answer Q-xxxx "<answer>" --by chief-architect`, and re-dispatch once. Scope: `--for ceo`.
+   - A hand-back saying a spec criterion is wrong as written is a success: route it to the architect.
+5. Log `talos log budget.consumed --summary "build: <elapsed from status> and <measured tokens from the Spend line>"`.
 
-5. **Review.** For each completed item spawn `code-reviewer` (base branch from the environment file), and `security-reviewer` when the item touches auth, credentials, ingestion, external APIs or user input. Log `review.requested` first. `changes_requested` sends the item back to a fresh `engineer` on the same branch with the findings pasted in; log the round trip and request a round-2 review of the fix diff. Two rejections of the same item means stop and escalate to the Chief Architect, not a third attempt.
+## Phase: verify
 
-6. **Verify.** When all reviewed items of the wave have passed, spawn one `test-engineer` with the list of items, branches and commits. It builds a detached integration worktree of the base branch, merges the item branches locally, runs everything, and logs `verified` or `rejected` per item itself. Rejected goes back to an engineer once; then escalate.
+1. `talos status --brief`. Items `completed` in this cycle are the input.
+2. **Review by risk.** For each completed item read its `risk` (in `talos item show`). `low`: no Opus review, go to step 3. `normal`: spawn `code-reviewer`. `high`, or the item touches auth, credentials, user input, ingestion or external APIs: `code-reviewer` and `security-reviewer`. Give each reviewer the item's context pack (`talos context ITEM-xxxx --role code-reviewer`), the branch, the commit and the base branch. Log `review.requested` first, then `review.passed` or `review.changes_requested` with the reviewer's verdict line.
+3. `changes_requested` sends the item to a fresh `engineer` on the same branch with the findings pasted in, then a round-2 review of the fix diff only. A second rejection of the same item stops: spawn `chief-architect` with both reviews; never a third attempt.
+4. **Verify.** When every reviewed item has passed, spawn one `test-engineer` with the list of items, branches and commits. It builds a detached integration worktree of the base branch, merges the branches locally, runs everything, and logs `verified` or `rejected` per item itself. A rejected item goes back to an engineer once, then to the architect.
+5. Log `talos log budget.consumed --summary "verify: <elapsed> and <measured tokens>"`.
 
-7. **Budget.** After each wave run `talos status` and log `talos log budget.consumed --summary "<elapsed from the ledger> and <measured tokens from the Spend line>, including review and decision rounds"`. A token budget in the charter is compared with the measured figure only, never an estimate. Stop dispatching when the budget is reached; finish collecting and verifying what is in flight; say plainly in the report that the ceiling was reached.
+## Phase: close
 
-8. **Keep the queue full and the follow-ups real.** Before closing, check `talos item list --status ready` for the next cycle. If it is empty or thin, spawn `chief-architect` to spec the next `proposed` items and `head-of-product` to mark them ready, inside this cycle's budget, so the next cycle starts with work. Then sweep this cycle's ledger notes and review findings for follow-ups that have no backlog item (hardening notes, doc fixes, "later" remarks): spawn `head-of-product` to create an item for each or decline it with a logged reason. A follow-up that lives only in a note is lost.
+1. `talos status --brief`.
+2. **Keep the queue full.** If `talos item list --status ready` is thin for the next cycle, spawn `chief-architect` to spec the next `proposed` items and `head-of-product` to mark them ready.
+3. **Follow-ups are items.** `talos events --cycle <N> --type review` and `talos events --cycle <N> --type note`: every follow-up with no backlog item goes to `head-of-product`, who creates an item or declines it with a logged reason.
+4. **Report.** `talos cycle end --summary "<one line>"`, then `talos report`. Spawn `chief-of-staff` with only the report path to rewrite its Summary into two or three plain sentences for a phone, leading with the one decision the CEO must make. The "Where the product is" section must be right: repository path, base branch, each verified item's branch and commit, nothing on the base branch until release approval, and every URL in both hostname and raw IP form as `company/environment.md` lists them. Spawn `librarian` to render the journal.
+5. **Deliver.** Send the CEO the report file if a file-sending tool exists. Do not merge: merging is the CEO's release approval (`talos approve release --ref ITEM-xxxx --quote "<their words>"`; then `talos gate release` and `talos gate item` must both pass).
+6. The retro (`tools/talos/run retro`) runs before the next cycle; a cycle never starts while the previous one has no retro.
 
-9. **Report.** `talos cycle end --summary "<one line>"`, then `talos report`. Edit the Summary into two or three plain sentences. Lead with the one decision the CEO must make. The report's "Where the product is" section must be correct: repository path, base branch, each verified item's branch and commit, and that nothing is on the base branch until release approval. Spawn `librarian` to render the journal and rebuild the index.
-
-10. **Deliver.** Give the CEO the report (send the file if a file-sending tool exists) with: items ready to merge and their branches, blocked items, CEO questions as yes/no, budget used, and where the product lives. Do not merge; merging is the CEO's release approval (`talos approve release --ref ITEM-xxxx --quote "<their words>"`, then `talos gate release` and `talos gate item` must both pass).
-
-11. **Run the retro before the next cycle.** Tell the CEO `/talos-retro` runs next. A cycle never starts while the previous cycle has no retro; the pre-mortem for the next cycle's specs depends on it.
+## Phase hand-back (the whole final message of a phase)
+```
+PHASE: build | verify | close
+CYCLE: <n>
+ITEMS: <id status, one per line>
+CEO QUESTIONS: <ids, or none>
+SPEND: <elapsed>, <measured tokens>
+NEXT: <the next phase, or "report delivered: <path>">
+```
 
 ## Do not
 - Write product code or tests yourself.
 - Mark anything `verified` without Test Engineer or Head of QA evidence.
-- Hand two concurrent engineers overlapping files.
+- Give two concurrent engineers overlapping files.
 - Decide a technical question yourself. Route it.
-- Let an engineer guess. A `needs_question` hand-back is a success of the process, not a failure.
+- Read files the pack or the CLI already summarises. Every file read is re-read on every later call of this session.
