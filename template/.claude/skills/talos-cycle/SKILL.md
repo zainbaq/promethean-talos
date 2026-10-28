@@ -17,6 +17,8 @@ Arguments: $ARGUMENTS
 
 A cycle has three phases. Each normally runs in its own fresh session through `tools/talos/run cycle-build|cycle-verify|cycle-close` (or `tools/talos/run cycle` for all three), because one long session re-reads its whole history on every call. If the first argument is `build`, `verify` or `close`, run only that phase. With no phase argument, run the three in order in this session.
 
+**Subagents run in the foreground.** Spawn every subagent as a normal (foreground) Agent call and wait for its result before you continue. Never start one in the background: a headless phase ends when your turn ends, and a background agent is cut off with its work lost (in the first UI test a background architect spent 1.5M tokens and wrote nothing).
+
 **Start every phase the same way:** `tools/talos/talos status --brief`, then the lines of `company/environment.md` you need (base branch, test command). Do not read the rest of `company/`; the CLI and the context packs give you what you need. End every phase with the phase hand-back at the bottom of this file and nothing else.
 
 Roles: **build** is run by the Chief of Staff (Fable; `TALOS_ACTOR=chief-of-staff TALOS_TIER=executive`), or by the Coordinator on Sonnet when every ready item is risk low, because then dispatch decides nothing. **verify** and **close** are run by the Coordinator (Sonnet; `TALOS_ACTOR=coordinator TALOS_TIER=execution`), who follows these steps exactly and escalates every judgment call: technical ones to a `chief-architect` subagent, scope ones as `talos ask --for ceo`.
@@ -35,7 +37,7 @@ Roles: **build** is run by the Chief of Staff (Fable; `TALOS_ACTOR=chief-of-staf
 ## Phase: verify
 
 1. `talos status --brief`. Items `completed` in this cycle are the input.
-2. **Review by risk.** For each completed item read its `risk` (in `talos item show`). `low`: no Opus review, go to step 3. `normal`: spawn `code-reviewer`. `high`, or the item touches auth, credentials, user input, ingestion or external APIs: `code-reviewer` and `security-reviewer`. Give each reviewer the item's context pack (`talos context ITEM-xxxx --role code-reviewer`), the branch, the commit and the base branch. Log `review.requested` first, then `review.passed` or `review.changes_requested` with the reviewer's verdict line.
+2. **Review by risk.** For each completed item read its `risk` (in `talos item show`) and follow it exactly; do not re-judge it. `low`: no Opus review, go to step 3. `normal`: spawn `code-reviewer`. `high`: `code-reviewer` and `security-reviewer`. Give each reviewer the item's context pack (`talos context ITEM-xxxx --role code-reviewer`), the branch, the commit and the base branch. Log `review.requested` first, then `review.passed` or `review.changes_requested` with the reviewer's verdict line.
 3. `changes_requested` sends the item to a fresh `engineer` on the same branch with the findings pasted in, then a round-2 review of the fix diff only. A second rejection of the same item stops: spawn `chief-architect` with both reviews; never a third attempt.
 4. **Verify.** When every reviewed item has passed, spawn one `test-engineer` with the list of items, branches and commits. It builds a detached integration worktree of the base branch, merges the branches locally, runs everything, and logs `verified` or `rejected` per item itself. A rejected item goes back to an engineer once, then to the architect.
 5. **Visual check** for items owned by `ui-engineer`, on an integration worktree (its own detached one if the Test Engineer has removed theirs): spawn `design-qa` with the screens those items touch, then `head-of-design` with only the screenshot folder and `company/design/mockups/shots`. Its critique is the review for visual criteria: `review.passed`, or `review.changes_requested` that sends the item back to a fresh `ui-engineer` once.
@@ -43,12 +45,15 @@ Roles: **build** is run by the Chief of Staff (Fable; `TALOS_ACTOR=chief-of-staf
 
 ## Phase: close
 
+The cycle closes and the report exists before anything else happens in this phase.
+
 1. `talos status --brief`.
-2. **Keep the queue full.** If `talos item list --status ready` is thin for the next cycle, spawn `chief-architect` to spec the next `proposed` items and `head-of-product` to mark them ready.
-3. **Follow-ups are items.** `talos events --cycle <N> --type review` and `talos events --cycle <N> --type note`: every follow-up with no backlog item goes to `head-of-product`, who creates an item or declines it with a logged reason.
-4. **Report.** `talos cycle end --summary "<one line>"`, then `talos report`. Spawn `chief-of-staff` with only the report path to rewrite its Summary into two or three plain sentences for a phone, leading with the one decision the CEO must make. The "Where the product is" section must be right: repository path, base branch, each verified item's branch and commit, nothing on the base branch until release approval, and every URL in both hostname and raw IP form as `company/environment.md` lists them. Spawn `librarian` to render the journal.
-5. **Deliver.** Send the CEO the report file if a file-sending tool exists. Do not merge: merging is the CEO's release approval (`talos approve release --ref ITEM-xxxx --quote "<their words>"`; then `talos gate release` and `talos gate item` must both pass).
-6. The retro (`tools/talos/run retro`) runs before the next cycle; a cycle never starts while the previous one has no retro.
+2. **Report first.** `talos cycle end --summary "<one line>"`, then `talos report`. Spawn `chief-of-staff` with only the report path to rewrite its Summary into two or three plain sentences for a phone, leading with the one decision the CEO must make. The "Where the product is" section must be right: repository path, base branch, each verified item's branch and commit, nothing on the base branch until release approval, and every URL in both hostname and raw IP form as `company/environment.md` lists them. For UI items, link the phone-width screenshots Design QA filed.
+3. **Follow-ups are items, not work.** `talos events --cycle <N> --type review` and `talos events --cycle <N> --type note`: spawn `head-of-product` once to create a `proposed` item for each follow-up with no backlog item, or decline it with a logged reason. Do not spec them. List them in the report under "Proposed next" for the CEO to prioritise.
+4. **Keep the queue full only when the charter needs it.** If the charter's success criteria are not all met, `talos size` is medium or large, and `talos item list --status ready` is thin, spawn `chief-architect` to spec the `proposed` items the charter still needs and `head-of-product` to mark them ready. Small projects, and projects whose charter is met, never spec follow-ups without the CEO.
+5. Spawn `librarian` to render the journal.
+6. **Deliver.** Send the CEO the report file if a file-sending tool exists. Do not merge: merging is the CEO's release approval (`talos approve release --ref ITEM-xxxx --quote "<their words>"`; then `talos gate release` and `talos gate item` must both pass).
+7. The retro (`tools/talos/run retro`) runs before the next cycle; a cycle never starts while the previous one has no retro.
 
 ## Phase hand-back (the whole final message of a phase)
 ```

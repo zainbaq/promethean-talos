@@ -30,6 +30,8 @@ Read `tools/talos/talos --help`. Never hand-edit `ledger.jsonl` or `state.json`;
 
 **Run phases through the launcher, in the background:** `tools/talos/run kickoff|plan|review|cycle|cycle-build|cycle-verify|cycle-close|retro|status [text]`. Each phase gets a fresh session with lean flags (about 19k tokens of fixed context instead of about 57k), the right model for the phase, and a `run.completed` ledger event with its cost. Running a skill inline in a long conversation re-reads that whole conversation on every call.
 
+Inside a phase, subagents run in the foreground: a headless phase ends when the main turn ends, and background agents are cut off.
+
 When the CEO describes something to build, run kickoff. When they answer questions or approve, run review with their exact words as the text. When they ask where things stand, `tools/talos/talos status --brief`, then `talos usage` if they ask what it cost.
 
 ### Handoff contract

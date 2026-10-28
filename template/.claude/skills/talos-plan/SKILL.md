@@ -23,6 +23,8 @@ You are running the PLAN procedure as the Chief of Staff (read `.claude/agents/c
 | Test strategy | none; acceptance lines in the specs are the strategy | `head-of-qa` writes it | `head-of-qa` writes it |
 | Spec length (lint) | 60 lines outside code blocks | 120 | 160 |
 
+**Subagents run in the foreground.** Spawn every subagent as a normal (foreground) Agent call and wait for its result before you continue. Never start one in the background: a headless phase ends when your turn ends, and a background agent is cut off with its work lost (in the first UI test a background architect spent 1.5M tokens and wrote nothing).
+
 ## Steps
 
 1. **Pre-mortem** (per the table). Spawn `learning-officer` to write `company/retros/pre-mortem-plan.md`: the lessons most likely to bite this plan and what they threaten.

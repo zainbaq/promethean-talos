@@ -121,6 +121,46 @@ def log_run(phase: str, model: str, res: dict) -> None:
         print(f"talos run: could not log run.completed ({e})", file=sys.stderr)
 
 
+# The ledger event each phase must leave behind. A session can end "successfully" without
+# doing its job (in the first UI test, cycle-close ended before closing the cycle), so the
+# launcher checks the record, not the session's own verdict.
+PROOF = {
+    "kickoff": ({"charter.proposed", "question.asked"}, "no charter.proposed or question.asked"),
+    "plan": ({"plan.proposed", "question.asked"}, "no plan.proposed or question.asked"),
+    "cycle-build": ({"item.completed", "item.blocked", "question.asked"}, "no item completed or blocked"),
+    "cycle-verify": ({"item.verified", "item.rejected", "review.changes_requested", "question.asked"}, "no item verified or rejected"),
+    "cycle-close": ({"cycle.ended"}, "the cycle was not ended (no cycle.ended)"),
+    "retro": ({"retro.completed"}, "no retro.completed"),
+}
+
+
+def ledger_len() -> int:
+    led = ROOT / "company" / "ledger.jsonl"
+    try:
+        return sum(1 for line in open(led, encoding="utf-8") if line.strip())
+    except OSError:
+        return 0
+
+
+def proof_missing(phase: str, before: int) -> str | None:
+    want, why = PROOF.get(phase, (set(), ""))
+    if not want:
+        return None
+    try:
+        lines = [l for l in open(ROOT / "company" / "ledger.jsonl", encoding="utf-8") if l.strip()][before:]
+        events = {json.loads(l).get("event") for l in lines}
+    except (OSError, ValueError):
+        return None
+    if not (events & want):
+        return why
+    if phase == "cycle-close":
+        st = json.loads((ROOT / "company" / "state.json").read_text(encoding="utf-8"))
+        rp = ROOT / "company" / "reports" / f"cycle-{int(st.get('cycle', 0)):03d}.md"
+        if not rp.exists():
+            return f"no report at {rp.relative_to(ROOT).as_posix()}"
+    return None
+
+
 def run_phase(phase: str, text: str, model: str | None, turns: int | None, dry: bool) -> int:
     cmd = command(phase, text, model, turns)
     used_model = cmd[cmd.index("--model") + 1]
@@ -128,6 +168,7 @@ def run_phase(phase: str, text: str, model: str | None, turns: int | None, dry: 
         print(" ".join(json.dumps(c) if " " in c else c for c in cmd))
         return 0
     print(f"talos run: {phase} on {used_model} (fresh lean session) ...", flush=True)
+    before = ledger_len()
     p = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace")
     raw = p.stdout.strip()
     try:
@@ -143,6 +184,11 @@ def run_phase(phase: str, text: str, model: str | None, turns: int | None, dry: 
     ok = not res.get("is_error") and res.get("subtype") == "success" and not limit
     if limit:
         res["subtype"] = "usage limit reached (the phase did not finish; rerun it when usage is available)"
+    elif ok:
+        missing = proof_missing(phase, before)
+        if missing:
+            ok = False
+            res["subtype"] = f"phase did not finish: {missing}; rerun `tools/talos/run {phase}`"
     log_run(phase, used_model, res)
     print(f"\ntalos run: {phase} {'finished' if ok else 'STOPPED: ' + str(res.get('subtype'))}; "
           f"{res.get('num_turns')} turns, ${res.get('total_cost_usd', 0):.2f}, session {res.get('session_id')}")

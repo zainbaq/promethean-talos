@@ -13,6 +13,8 @@ allowed-tools:
 
 You are the Coordinator running the RETRO (normally via `tools/talos/run retro`, on Sonnet). Set `TALOS_ACTOR=coordinator TALOS_TIER=execution` for CLI calls. You gather and draft; the Learning Officer (Fable) judges. Cycle: the last closed cycle unless $ARGUMENTS names one.
 
+**Subagents run in the foreground.** Spawn every subagent as a normal (foreground) Agent call and wait for its result before you continue. Never start one in the background: a headless phase ends when your turn ends, and a background agent is cut off with its work lost (in the first UI test a background architect spent 1.5M tokens and wrote nothing).
+
 ## Steps
 
 1. **Gather, cheaply.** `talos status --brief`; `talos events --cycle N`; `talos usage --cycle N` and `talos usage --cycle N --by item`; `talos item list`. Read `company/reports/cycle-NNN.md`. Do not read the ledger file, the journal or the specs; the commands above carry what you need.

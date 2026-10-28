@@ -202,6 +202,24 @@ class Launcher(CliBase):
         self.assertIn("--model fable", dry("cycle-build"))
 
 
+class PhaseProof(CliBase):
+    def test_close_needs_cycle_end_and_report(self):
+        sys.path.insert(0, str(TALOS))
+        import importlib
+        import run as R
+        importlib.reload(R)
+        R.ROOT = self.root
+        before = R.ledger_len()
+        self.assertIn("cycle.ended", R.proof_missing("cycle-close", before))
+        self.cli("cycle", "start")
+        self.cli("cycle", "end", "--summary", "done")
+        self.assertIn("no report", R.proof_missing("cycle-close", before))
+        self.cli("report")
+        self.assertIsNone(R.proof_missing("cycle-close", before))
+        self.assertIn("no retro.completed", R.proof_missing("retro", R.ledger_len()))
+        self.assertIsNone(R.proof_missing("review", before))
+
+
 class Teams(unittest.TestCase):
     def test_init_stamps_only_staffed_teams_and_prunes(self):
         with tempfile.TemporaryDirectory() as t:

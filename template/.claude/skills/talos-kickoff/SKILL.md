@@ -17,6 +17,8 @@ You are running the KICKOFF procedure. For this procedure you act as the Chief o
 
 Brief: $ARGUMENTS
 
+**Subagents run in the foreground.** Spawn every subagent as a normal (foreground) Agent call and wait for its result before you continue. Never start one in the background: a headless phase ends when your turn ends, and a background agent is cut off with its work lost (in the first UI test a background architect spent 1.5M tokens and wrote nothing).
+
 ## Steps
 
 1. **Make sure the project toolchain exists, then write `company/environment.md`.** This comes first because the record CLI itself runs on the project venv. The company never depends on interpreters or packages installed on the machine; every project carries its own.
