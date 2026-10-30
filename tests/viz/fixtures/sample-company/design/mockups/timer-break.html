@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>focus: break ready</title>
+<link rel="stylesheet" href="../tokens.css">
+<style>
+  /* Variant of timer.html: the state at 0:00 after a focus session (Q-0001: wait for Start).
+     Styles are identical to timer.html; only the data attributes and copy differ. */
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; }
+  body {
+    background: var(--bg); color: var(--ink);
+    font-family: var(--font-body); font-size: var(--text-md); line-height: var(--leading-body);
+    -webkit-font-smoothing: antialiased;
+  }
+  :focus-visible { outline: var(--focus-width) solid var(--focus); outline-offset: var(--focus-offset); }
+
+  .app {
+    max-width: var(--content-max); min-height: 100dvh; margin: 0 auto;
+    display: flex; flex-direction: column; background: var(--bg);
+  }
+  @media (min-width: 600px) { .app { border-left: 1px solid var(--line); border-right: 1px solid var(--line); } }
+
+  .bar {
+    height: var(--control-h); padding: 0 var(--space-4);
+    display: flex; align-items: center; justify-content: space-between; flex: none;
+  }
+  .wordmark {
+    margin: 0; display: flex; align-items: center; gap: var(--space-2);
+    font-family: var(--font-display); font-size: var(--text-lg); font-weight: var(--weight-bold); color: var(--ink);
+  }
+  .wordmark::before { content: ""; width: 8px; height: 8px; border-radius: var(--radius-pill); background: var(--accent); }
+  .stage[data-phase="break"] ~ * .wordmark::before, .app:has(.stage[data-phase="break"]) .wordmark::before { background: var(--accent-break); }
+  .bar-link {
+    display: inline-flex; align-items: center; min-height: var(--tap-min); padding: 0 var(--space-3);
+    border-radius: var(--radius-md); text-decoration: none;
+    font-weight: var(--weight-semibold); color: var(--accent);
+    transition: background var(--dur-fast) var(--ease);
+  }
+  .app:has(.stage[data-phase="break"]) .bar-link { color: var(--accent-break); }
+  .bar-link:hover { background: var(--surface); }
+
+  .stage { position: relative; flex: 1; overflow: hidden; display: flex; flex-direction: column; --level: 100%; }
+  .tide {
+    position: absolute; left: 0; right: 0; bottom: 0; height: var(--level);
+    background: var(--tide); border-top: 2px solid var(--tide-edge);
+    transition: height var(--tide-step);
+  }
+  .stage[data-phase="break"] .tide { background: var(--tide-break); border-top-color: var(--tide-break-edge); }
+
+  .clock {
+    position: relative; flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 0 var(--space-5); text-align: center;
+  }
+  .phase {
+    margin: 0 0 var(--space-3); font-size: var(--text-sm); font-weight: var(--weight-semibold);
+    letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--accent);
+  }
+  .stage[data-phase="break"] .phase { color: var(--accent-break); }
+  .stage[data-state="paused"] .phase { color: var(--ink-muted); }
+  .count {
+    margin: 0; font-family: var(--font-display); font-size: var(--text-display); font-weight: var(--weight-light);
+    line-height: var(--leading-tight); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; color: var(--ink);
+  }
+  .stage[data-state="paused"] .count { color: var(--ink-muted); }
+  .hint { margin: var(--space-4) 0 0; font-size: var(--text-sm); color: var(--ink-muted); min-height: 1.5em; }
+  .stage[data-state="running"] .hint, .stage[data-state="paused"] .hint { visibility: hidden; }
+
+  .controls {
+    position: relative; display: grid; gap: var(--space-3);
+    padding: var(--space-5) var(--space-5) calc(var(--space-6) + env(safe-area-inset-bottom));
+  }
+  .btn {
+    width: 100%; border-radius: var(--radius-lg); font-family: var(--font-body);
+    font-size: var(--text-lg); font-weight: var(--weight-semibold); cursor: pointer;
+    transition: background var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease);
+  }
+  .btn:active { transform: scale(0.99); }
+  .btn-primary { height: var(--primary-h); border: 0; background: var(--accent); color: var(--on-accent); }
+  .btn-primary:hover { background: var(--accent-hover); }
+  .stage[data-phase="break"] .btn-primary { background: var(--accent-break); color: var(--on-accent-break); }
+  .stage[data-phase="break"] .btn-primary:hover { background: var(--accent-break-hover); }
+  .btn-secondary { height: var(--control-h); background: transparent; border: 1.5px solid var(--line-strong); color: var(--ink); }
+  .btn-secondary:hover { background: var(--surface); }
+  .btn:disabled { cursor: default; transform: none; }
+  .btn-secondary:disabled { color: var(--ink-disabled); border-color: var(--line); background: transparent; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="bar">
+    <h1 class="wordmark">focus</h1>
+    <a class="bar-link" href="settings.html">Settings</a>
+  </header>
+
+  <main class="stage" data-phase="break" data-state="idle" style="--level: 100%">
+    <div class="tide" aria-hidden="true"></div>
+
+    <section class="clock" aria-labelledby="phase">
+      <p class="phase" id="phase" aria-live="polite">Break</p>
+      <p class="count">5:00</p>
+      <p class="hint">Focus done. Start the break when you're ready.</p>
+    </section>
+
+    <div class="controls">
+      <button class="btn btn-primary" type="button">Start</button>
+      <button class="btn btn-secondary" type="button">Reset</button>
+    </div>
+  </main>
+</div>
+</body>
+</html>

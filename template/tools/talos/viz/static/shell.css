@@ -1,0 +1,174 @@
+/* Shell: base, header, nav, view container, the split layout, view switch (motion row 1). Values are tokens only;
+   reference: company/design/mockups/mockup.css. */
+
+*, *::before, *::after { box-sizing: border-box; }
+html { background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 16px; line-height: var(--leading-body); -webkit-text-size-adjust: 100%; overflow-anchor: none; }
+body { margin: 0; min-height: 100vh; }
+code, .mono, time, .num { font-family: var(--font-mono); font-variant-numeric: var(--numeric); }
+code { font-size: 0.92em; }
+h1, h2, h3, p, ul, ol, dl, dd, figure { margin: 0; }
+ul, ol { padding: 0; list-style: none; }
+a { color: inherit; }
+button, select { font: inherit; color: inherit; }
+:focus-visible { outline: var(--focus-width) solid var(--focus); outline-offset: var(--focus-offset); border-radius: var(--radius-sm); }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+[hidden] { display: none !important; }
+.skip { position: absolute; left: var(--space-3); top: -100px; padding: var(--space-2) var(--space-3); background: var(--ink); color: var(--bg); border-radius: var(--radius-md); z-index: 20; }
+.skip:focus { top: var(--space-3); }
+
+/* ---------- Shell ---------- */
+.app { display: grid; grid-template-rows: var(--header-h) 1fr; grid-template-columns: minmax(0, 1fr); grid-template-areas: "top" "main"; min-height: 100vh; padding-bottom: var(--nav-h); }
+.top { grid-area: top; display: flex; align-items: center; gap: var(--space-3); padding: 0 var(--space-4); border-bottom: 1px solid var(--line); height: var(--header-h); }
+.top__project { display: flex; align-items: baseline; gap: var(--space-2); min-width: 0; flex: 1 1 auto; }
+.top__name { white-space: nowrap; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: var(--weight-medium); font-size: var(--text-sm); color: var(--ink); }
+.top__path { min-width: 0; flex: 0 1 auto; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--ink-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: none; }
+.top__rule { width: 1px; height: 20px; background: var(--line-strong); flex: none; opacity: 0.7; }
+.top__fresh { margin-left: auto; display: flex; align-items: center; gap: var(--space-2); font-family: var(--font-mono); font-size: var(--text-xs); color: var(--ink-muted); white-space: nowrap; flex: none; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--signal); flex: none; animation: dot-beat 2.4s var(--ease-out) infinite; }
+.top__fresh[data-fresh="stale"] .dot { background: var(--attention); animation: none; }
+.top__fresh[data-fresh="error"] .dot { background: var(--danger); animation: none; }
+@keyframes dot-beat { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--signal) 55%, transparent); } 70%, 100% { box-shadow: 0 0 0 7px transparent; } }
+
+/* The project switcher: the project name is a button; a panel lists every Talos project the server found. */
+.top__switch { position: relative; min-width: 0; flex: 1 1 auto; display: flex; }
+.switch { border: 0; background: none; padding: 6px 10px; margin-left: -10px; border-radius: var(--radius-md); cursor: pointer; text-align: left; flex: 0 1 auto; align-items: center; transition: background var(--dur-1) var(--ease-out); }
+.switch:hover, .switch[aria-expanded="true"] { background: var(--surface); }
+.switch__chev { width: 12px; height: 12px; flex: none; fill: none; stroke: var(--ink-muted); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; transition: transform var(--dur-2) var(--ease-out); align-self: center; }
+.switch[aria-expanded="true"] .switch__chev { transform: rotate(180deg); }
+.switcher { position: absolute; top: calc(100% + 8px); left: -10px; z-index: 30; width: min(460px, calc(100vw - 24px)); padding: 10px; border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--surface) 94%, transparent); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid var(--line-strong);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.4); opacity: 0; transform: translateY(-6px) scale(0.98); transform-origin: top left;
+  transition: opacity var(--dur-2) var(--ease-out), transform var(--dur-2) var(--ease-out); }
+.switcher.is-open { opacity: 1; transform: none; }
+.switcher__h { font-size: var(--text-2xs); text-transform: uppercase; letter-spacing: var(--tracking-caps); color: var(--ink-muted); font-weight: var(--weight-semibold); padding: 4px 8px 8px; }
+.switcher__list { display: grid; gap: 2px; }
+.switcher__item { display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 10px 10px; border-radius: var(--radius-md); text-decoration: none; color: var(--ink);
+  transition: background var(--dur-1) var(--ease-out); animation: row-in var(--dur-3) var(--ease-out) both; animation-delay: calc(var(--n, 0) * var(--stagger)); }
+.switcher__item:hover, .switcher__item:focus-visible { background: var(--surface-sunken); }
+.switcher__mark { width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid var(--line-strong); }
+.switcher__item.is-current .switcher__mark { border-color: var(--signal); background: var(--signal); box-shadow: 0 0 0 3px var(--signal-soft); }
+.switcher__text { display: flex; flex-direction: column; min-width: 0; }
+.switcher__text b { font-weight: var(--weight-semibold); font-size: var(--text-sm); }
+.switcher__text code { font-size: var(--text-2xs); color: var(--ink-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.switcher__when { font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--ink-muted); white-space: nowrap; }
+.switcher__loading { padding: 10px; color: var(--ink-muted); font-size: var(--text-sm); }
+.switcher__note { font-size: var(--text-2xs); color: var(--ink-muted); padding: 10px 8px 2px; border-top: 1px solid var(--line); margin-top: 8px; }
+@keyframes row-in { from { opacity: 0; transform: translateY(-4px); } }
+body.is-switching .app { opacity: 0; transform: scale(0.99); transition: opacity 200ms var(--ease-in-out), transform 200ms var(--ease-in-out); }
+
+/* The brand: mark plus wordmark. On hover the three rings turn at their own speeds and the dot runs the orbit. */
+.brand { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; flex: none; color: var(--ink); border-radius: var(--radius-md); }
+.brand__word { font-family: var(--font-display); font-weight: var(--weight-semibold); font-size: var(--text-lg); letter-spacing: 0.02em; transition: letter-spacing var(--dur-3) var(--ease-out); }
+.logo { width: 30px; height: 30px; overflow: visible; flex: none; }
+.logo__ring { fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; transform-origin: 16px 16px; transition: transform 900ms var(--ease-out), stroke var(--dur-2) var(--ease-out); }
+.logo__ring--1 { transform: rotate(18deg); animation: logo-in 1100ms var(--ease-out) both; }
+.logo__ring--2 { transform: rotate(150deg); opacity: 0.75; animation: logo-in 1300ms var(--ease-out) 80ms both; }
+.logo__ring--3 { transform: rotate(260deg); opacity: 0.5; animation: logo-in 1500ms var(--ease-out) 160ms both; }
+.logo__orbit { transform-origin: 16px 16px; transform: rotate(-38deg); transition: transform 1100ms var(--ease-out); }
+.logo__dot { fill: var(--signal); }
+.brand:hover .logo__ring--1, .brand:focus-visible .logo__ring--1 { transform: rotate(198deg); }
+.brand:hover .logo__ring--2, .brand:focus-visible .logo__ring--2 { transform: rotate(-60deg); stroke: var(--signal); }
+.brand:hover .logo__ring--3, .brand:focus-visible .logo__ring--3 { transform: rotate(620deg); }
+.brand:hover .logo__orbit, .brand:focus-visible .logo__orbit { transform: rotate(322deg); }
+.brand:hover .logo__dot { animation: dot-glow 1100ms var(--ease-out); }
+.brand:hover .brand__word { letter-spacing: 0.08em; }
+@keyframes dot-glow { 50% { filter: drop-shadow(0 0 4px var(--signal)); } }
+@keyframes logo-in { from { opacity: 0; } }
+
+/* Icons */
+.ico { width: 22px; height: 22px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.ico .ico-fill { fill: currentColor; stroke: none; }
+
+/* The rail: on the phone it is the bottom tab bar; on desktop a left sidebar, icons only until expanded. */
+.rail { display: contents; }
+.rail__toggle { display: none; }
+.nav { position: fixed; left: 0; right: 0; bottom: 0; height: var(--nav-h); display: grid; grid-template-columns: repeat(3, 1fr); background: var(--surface); border-top: 1px solid var(--line); z-index: 10; }
+.nav a { display: flex; align-items: center; justify-content: center; gap: var(--space-2); min-height: var(--tap-min); text-decoration: none; font-weight: var(--weight-medium); font-size: var(--text-sm); color: var(--ink-muted); position: relative; transition: background var(--dur-1) var(--ease-out), color var(--dur-1) var(--ease-out), transform var(--dur-1) var(--ease-out); }
+.nav a::before { content: ""; position: absolute; top: -1px; left: 50%; width: 36px; height: 3px; transform: translateX(-50%) scaleX(0); background: var(--ink); border-radius: 0 0 3px 3px; transition: transform var(--dur-2) var(--ease-out); }
+.nav a[aria-current="page"] { color: var(--ink); }
+.nav a[aria-current="page"]::before { transform: translateX(-50%) scaleX(1); }
+.nav a:hover { background: var(--surface-sunken); }
+.nav a:active { transform: scale(0.98); }
+.nav__icon { position: relative; display: inline-flex; }
+.nav .ico--now circle { transform-origin: 12px 12px; transition: transform var(--dur-2) var(--ease-out); }
+.nav a:hover .ico--now circle:nth-child(2) { transform: scale(1.25); }
+.nav a:hover .ico--now .ico-fill { animation: orbit 1.2s var(--ease-in-out); }
+.nav a:hover .ico--timeline path:last-child { stroke-dasharray: 9; animation: draw-in 600ms var(--ease-out); }
+.nav .ico--work rect { transform-box: fill-box; transform-origin: bottom; transition: transform var(--dur-2) var(--ease-out); }
+.nav a:hover .ico--work rect:nth-child(2) { transform: scaleY(1.4); }
+.nav a:hover .ico--work rect:nth-child(3) { transform: scaleY(0.8); }
+@keyframes orbit { to { transform: rotate(360deg); } }
+@keyframes draw-in { from { stroke-dashoffset: 9; } }
+.nav__count { font-family: var(--font-mono); font-size: var(--text-2xs); min-width: 18px; height: 18px; padding: 0 5px; border-radius: var(--radius-pill); background: var(--attention); color: var(--on-attention); display: inline-flex; align-items: center; justify-content: center; }
+
+.main { min-width: 0; }
+.main:focus { outline: none; }
+.section-h { font-size: var(--text-xs); font-weight: var(--weight-semibold); text-transform: uppercase; letter-spacing: var(--tracking-caps); color: var(--ink-muted); display: flex; align-items: center; gap: var(--space-2); }
+.count { font-family: var(--font-mono); font-size: var(--text-xs); font-weight: var(--weight-regular); letter-spacing: 0; text-transform: none; padding: 1px 8px; border-radius: var(--radius-pill); background: var(--surface-sunken); color: var(--ink); }
+.count--attention { background: var(--attention); color: var(--on-attention); }
+.count--signal { background: var(--signal); color: var(--on-signal); }
+
+/* Digit roll (motion row 5): the old character is a pseudo-element, the DOM always holds the final text. */
+.roll { position: relative; display: inline-block; overflow: hidden; vertical-align: bottom; }
+.roll::after { content: attr(data-old); position: absolute; left: 0; top: 0; opacity: 0; }
+.roll__new { display: inline-block; }
+
+/* ---------- View container and the split layout ---------- */
+section[data-view] { min-width: 0; view-transition-name: panel; transition: opacity var(--dur-3) var(--ease-in-out), transform var(--dur-3) var(--ease-in-out); }
+section[data-view][data-entering] { opacity: 0; transform: translateY(12px); }
+.stub { padding: var(--space-5) var(--space-4); }
+.picture { position: relative; }
+.main--split { display: flex; flex-direction: column; }
+.main--split > .picture, .main--split > .panel { display: contents; }
+.main--split .horizon { order: 1; } .main--split .legend-slot { order: 1; } .main--split .edge { order: 2; } .main--split .waiting { order: 3; } .main--split .cycle { order: 4; } .main--split .summaries { order: 5; }
+.horizon { position: relative; height: var(--horizon-h); overflow: hidden; view-transition-name: rings; }
+.horizon .rings { position: absolute; left: 50%; top: 26px; width: var(--rings-phone); transform: translateX(-50%); margin: 0; }
+.horizon .rings__centre { top: calc(26px + var(--rings-phone) / 2); }
+
+::view-transition-old(panel) { animation: vt-out var(--dur-3) var(--ease-in-out) both; }
+::view-transition-new(panel) { animation: vt-in var(--dur-3) var(--ease-in-out) both; }
+::view-transition-group(rings) { animation-duration: var(--dur-3); animation-timing-function: var(--ease-in-out); }
+::view-transition-old(root), ::view-transition-new(root) { animation: none; mix-blend-mode: normal; }
+@keyframes vt-out { to { opacity: 0; transform: translateY(-12px); } }
+@keyframes vt-in { from { opacity: 0; transform: translateY(12px); } }
+
+/* ---------- Desktop: a picture with a panel beside it ---------- */
+@media (min-width: 900px) {
+  :root { --header-h: 60px; --rail-w: 64px; }
+  .app { padding-bottom: 0; grid-template-columns: var(--rail-w) minmax(0, 1fr); grid-template-areas: "top top" "rail main"; transition: grid-template-columns var(--dur-3) var(--ease-out); }
+  .app[data-rail="open"] { --rail-w: 208px; }
+  .top { padding: 0 var(--space-5) 0 17px; gap: var(--space-4); }
+  .top__path { display: block; }
+  .rail { grid-area: rail; display: flex; flex-direction: column; gap: var(--space-1); padding: var(--space-3) 10px; border-right: 1px solid var(--line); position: sticky; top: 0; height: calc(100vh - var(--header-h)); align-self: start; overflow: hidden; }
+  .rail__toggle, .nav a { display: flex; align-items: center; justify-content: flex-start; gap: 14px; height: 44px; min-height: 0; padding: 0 0 0 11px; border: 0; border-radius: var(--radius-md); background: none; color: var(--ink-muted); cursor: pointer; white-space: nowrap; text-decoration: none; font-size: var(--text-sm); font-weight: var(--weight-medium); }
+  .rail__toggle { order: 2; margin-top: auto; }
+  .rail__toggle:hover, .nav a:hover { background: var(--surface); color: var(--ink); }
+  .rail__toggle .ico-chev { transform-origin: 14.75px 12px; transition: transform var(--dur-3) var(--ease-out); }
+  .app[data-rail="open"] .rail__toggle .ico-chev { transform: rotate(180deg); }
+  .nav { position: static; height: auto; display: flex; flex-direction: column; gap: var(--space-1); background: none; border: 0; }
+  .nav a::before { top: 10px; bottom: 10px; left: -10px; width: 3px; height: auto; transform: scaleY(0); border-radius: 0 3px 3px 0; background: var(--signal); }
+  .nav a[aria-current="page"] { color: var(--ink); background: var(--surface); }
+  .nav a[aria-current="page"]::before { transform: scaleY(1); }
+  .nav__label { opacity: 0; transform: translateX(-6px); transition: opacity var(--dur-2) var(--ease-out), transform var(--dur-2) var(--ease-out); }
+  .app[data-rail="open"] .nav__label { opacity: 1; transform: none; transition-delay: 80ms; }
+  .nav__count { position: absolute; left: 24px; top: 3px; border: 2px solid var(--bg); }
+  .nav a[aria-current="page"] .nav__count, .nav a:hover .nav__count { border-color: var(--surface); }
+  .main--split { display: grid; grid-template-columns: minmax(0, 1fr) var(--panel-w); min-height: calc(100vh - var(--header-h)); }
+  .main--split > .picture, .main--split > .panel { display: block; }
+  .picture { position: sticky; top: 0; align-self: start; height: calc(100vh - var(--header-h)); display: grid; grid-template-rows: 1fr auto auto auto; }
+  .panel { border-left: 1px solid var(--line); min-width: 0; }
+  .horizon { height: auto; overflow: visible; display: grid; place-items: center; padding-top: var(--space-4); }
+  .horizon .rings { position: static; width: var(--rings-desktop); transform: none; }
+  .horizon .rings__centre { top: 50%; left: 50%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dot, .logo__ring, .logo__dot { animation: none !important; }
+}
+html[data-motion="reduce"] .dot, html[data-motion="reduce"] .logo__ring { animation: none !important; }
+
+/* Reduced motion: the tokens already carry 0 for every duration; this makes the view switch instant too. */
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(panel), ::view-transition-new(panel), ::view-transition-group(rings) { animation-duration: 0ms; }
+}
+html[data-motion="reduce"] ::view-transition-old(panel), html[data-motion="reduce"] ::view-transition-new(panel), html[data-motion="reduce"] ::view-transition-group(rings) { animation-duration: 0ms; }

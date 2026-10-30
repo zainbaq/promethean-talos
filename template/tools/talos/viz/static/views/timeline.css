@@ -1,0 +1,92 @@
+/* Timeline view (SPEC-0004; components.md Filters, Cycle heading, Phase group, Event row, The rings "Centre").
+   Reference: company/design/mockups/mockup.css lines 145-188 and 252-291. Values are tokens only. Ring styles live in
+   rings.css; the one rule here for the rings is the open-group highlight path this view adds. */
+
+.app--timeline { --panel-w: 620px; }
+
+/* ---------- The map ---------- */
+.stage { position: relative; display: grid; place-items: center; view-transition-name: rings; }
+.picture--map .stage { padding: var(--space-4) 0; }
+.picture--map .rings__centre { top: 50%; left: 50%; }
+.rings__count { font-family: var(--font-display); font-weight: var(--weight-light); font-size: var(--text-2xl); letter-spacing: var(--tracking-tight); line-height: 1; }
+.rings__count small { display: block; font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--ink-muted); margin-top: var(--space-1); letter-spacing: 0; font-weight: var(--weight-regular); }
+.rings__count code { color: var(--ink); }
+/* Arcs rest at half strength; an open group's highlight path adds the other half, so an all-open map matches the mockup. */
+.stage .rings .arc { opacity: 0.5; }
+.rings .arc-hi { fill: none; stroke: var(--ring-arc); stroke-width: var(--ring-w); stroke-linecap: butt; opacity: 0; pointer-events: none; transition: opacity var(--dur-2) var(--ease-out); }
+.rings .arc-hi.is-open { opacity: 0.5; }
+.rings.is-filtered .arc-hi { opacity: 0; }
+
+/* ---------- Filters ---------- */
+.filters { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2) var(--space-3); padding: var(--space-3) var(--space-4); background: var(--bg); position: sticky; top: 0; z-index: 5; border-bottom: 1px solid var(--line); }
+.filters label { font-size: var(--text-2xs); text-transform: uppercase; letter-spacing: var(--tracking-caps); color: var(--ink-muted); display: grid; gap: var(--space-1); }
+.select { appearance: none; height: var(--control-h); padding: 0 var(--space-6) 0 var(--space-3); border-radius: var(--radius-md); border: 1px solid var(--line-strong); background: var(--surface) linear-gradient(45deg, transparent 50%, currentColor 50%) no-repeat calc(100% - 18px) 55% / 6px 6px, linear-gradient(-45deg, transparent 50%, currentColor 50%) no-repeat calc(100% - 12px) 55% / 6px 6px; background-color: var(--surface); font-family: var(--font-mono); font-size: var(--text-sm); color: var(--ink); text-transform: none; letter-spacing: 0; min-width: 0; width: 100%; }
+.select:hover { border-color: var(--ink); }
+.select.is-set { border-color: var(--ink); background-color: var(--surface-sunken); font-weight: var(--weight-semibold); }
+.filters__count { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); font-family: var(--font-mono); font-size: var(--text-xs); color: var(--ink-muted); }
+.filters__count .num { color: var(--ink); font-weight: var(--weight-semibold); }
+.filters__count code { color: var(--ink); }
+.link-btn { background: none; border: 0; padding: var(--space-2); margin: calc(-1 * var(--space-2)); text-decoration: underline; cursor: pointer; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--ink); min-height: var(--tap-min); }
+.link-btn:disabled { color: var(--ink-faint); text-decoration: none; cursor: default; }
+
+/* ---------- Ledger: cycle headings, phase groups, event rows ---------- */
+.ledger { padding: 0 var(--space-4) var(--space-6); }
+.cycle-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-1) var(--space-3); font-family: var(--font-display); font-weight: var(--weight-light); font-size: var(--text-xl); letter-spacing: var(--tracking-tight); padding: var(--space-5) 0 var(--space-2); }
+.cycle-h__meta { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--ink-muted); font-weight: var(--weight-regular); letter-spacing: 0; }
+.cycle-h.is-filtered-out { color: var(--ink-muted); }
+.group { border-top: 1px solid var(--line); }
+.group__sum { display: flex; align-items: center; gap: var(--space-2); min-height: var(--tap-min); padding: var(--space-2) 0; cursor: pointer; list-style: none; font-family: var(--font-mono); font-size: var(--text-sm); flex-wrap: wrap; }
+.group__sum::-webkit-details-marker { display: none; }
+.group__sum::before { content: ""; width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--ink); flex: none; }
+.group[open] > .group__sum::before { background: var(--ink); }
+.group__sum:hover { background: var(--surface-sunken); margin: 0 calc(-1 * var(--space-2)); padding-left: var(--space-2); padding-right: var(--space-2); }
+.group__phase { font-weight: var(--weight-semibold); }
+.group__count { font-size: var(--text-xs); padding: 0 8px; border-radius: var(--radius-pill); background: var(--surface-sunken); }
+.group__span { font-size: var(--text-xs); color: var(--ink-muted); }
+.group__hint { font-size: var(--text-xs); color: var(--ink-muted); flex-basis: 100%; padding-left: 18px; overflow-wrap: anywhere; }
+.group.is-filtered-out > .group__sum { color: var(--ink-muted); }
+.group.is-filtered-out > .group__sum::before { border-color: var(--line-strong); }
+.group.is-filtered-out > .group__sum .group__span { display: none; }
+.events { display: grid; }
+.event { display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 0 var(--space-2); padding: var(--space-3) 0; border-top: 1px solid var(--line); }
+.event:first-child { border-top: 0; }
+.event .tick { grid-row: 1 / span 3; justify-self: center; width: 2px; height: 14px; background: var(--ring-tick); border-radius: 1px; margin-top: 4px; }
+.event--execution .tick, .event--review .tick { height: 9px; }
+.event--mechanical .tick { height: 5px; background: var(--ring-tick-faint); }
+.event--ceo .tick { height: 22px; width: 3px; background: var(--attention); }
+.event__line { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--ink-muted); display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; min-width: 0; }
+.event__actor { color: var(--ink); font-weight: var(--weight-semibold); }
+.event--ceo .event__actor { color: var(--attention); }
+.event__type { padding: 1px 6px; border-radius: var(--radius-sm); background: var(--surface-sunken); color: var(--ink); font-size: var(--text-2xs); }
+.event--ceo .event__type { background: var(--attention-soft); color: var(--attention); }
+.event__ref { overflow-wrap: anywhere; }
+.event__summary { font-size: var(--text-sm); margin-top: var(--space-1); overflow-wrap: anywhere; max-width: var(--prose-max); }
+.event__refs { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--ink-muted); margin-top: var(--space-1); overflow-wrap: anywhere; }
+.event__refs .label { text-transform: uppercase; letter-spacing: var(--tracking-caps); font-size: var(--text-2xs); margin-right: var(--space-1); }
+.event__refs code { color: var(--ink); }
+.event__refs a { color: var(--ink); }
+/* ---------- Motion (rows 2, 9, 10; ADR-0004 cycle-2 amendment): opacity only, tokens only ---------- */
+.ledger > section, .group, .event { transition: opacity var(--dur-2) var(--ease-out); }
+.ledger > section[data-entering], .group[data-entering], .event[data-entering] { opacity: 0; }
+.ledger { transition: opacity var(--dur-2) var(--ease-in-out); }
+.ledger[data-filtering] { opacity: 0.4; transition-duration: var(--dur-1); }
+.event[data-stagger="1"] { transition-delay: var(--stagger); }
+.event[data-stagger="2"] { transition-delay: calc(2 * var(--stagger)); }
+.event[data-stagger="3"] { transition-delay: calc(3 * var(--stagger)); }
+.event[data-stagger="4"] { transition-delay: calc(4 * var(--stagger)); }
+.event[data-stagger="5"] { transition-delay: calc(5 * var(--stagger)); }
+.event[data-stagger="6"] { transition-delay: calc(6 * var(--stagger)); }
+.event[data-stagger="7"] { transition-delay: calc(7 * var(--stagger)); }
+/* Phone cap (ADR-0004 growth-rings amendment point 5): only the outermost two rings' ticks animate on a filter. */
+.picture--map .rings .ring:not(.ring--recent) .tick { transition: none; }
+
+@media (min-width: 900px) {
+  /* ITEM-0019: reserve the pin-label overhang above the disc so the topmost label clears the header rule (Head of Design, cycle 3). */
+  .picture--map { padding: var(--space-7) 0 0; }
+  .picture--map .stage { padding: 0; }
+  /* ITEM-0018: the disc never grows past its column (900 to 1100 px the column is narrower than --rings-desktop). */
+  .picture--map .rings { max-width: 100%; }
+  .rings__count { font-size: var(--text-3xl); }
+  .filters { position: static; padding: var(--space-5) var(--space-5) var(--space-3); }
+  .ledger { padding: 0 var(--space-5) var(--space-6); }
+}

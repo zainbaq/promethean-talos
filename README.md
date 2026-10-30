@@ -44,6 +44,17 @@ cd /path/to/your/project && tools/talos/run kickoff company/brief.md
 
 Say "approved" (or what should change) at each gate; `tools/talos/run review "<your words>"` records them. `tools/talos/talos status --brief` tells you where things stand and `tools/talos/talos usage` what it cost, measured from Claude Code's transcripts.
 
+### The visualizer (optional)
+
+Projects are headless by default. If you would rather watch the company work, stamp with `--viz` (or re-run `init.py <project> --viz` on an existing project) and start it from the project root:
+
+```bash
+tools/talos/talos viz                                  # http://127.0.0.1:8000/
+tools/talos/talos viz --host 0.0.0.0 --allow-host my-pc # reachable from your phone, e.g. over Tailscale
+```
+
+It is a read-only page over the project record, standard library only. The growth rings show one ring per cycle, an arc per phase run sized by its cost and a tick per ledger event; hover or tap any mark for what happened, who did it and what the run cost. Timeline lists every event, filterable, and Work shows the backlog by status. It updates live while a phase runs, and the project name in the header switches to any other Talos project next to this one (`--scan DIR` to look elsewhere, `--no-scan` for just this one).
+
 ## The cast
 
 | Tier | Model | Roles |
@@ -64,6 +75,7 @@ Each role is a markdown file in `.claude/agents/`. Add your own by copying one. 
 .claude/rules/           conventions that load when anyone touches company/
 .claude/settings.json    hooks (status on start, destructive-command guard, log reminder) and permissions, merged with yours
 tools/talos/           the stdlib-only record CLI and hook scripts
+tools/talos/viz/         the visualizer, only with --viz
 company/                 the project record
 CLAUDE.md                a "Talos" section appended between markers
 ```

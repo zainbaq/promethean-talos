@@ -1,0 +1,154 @@
+/* Talos visualizer: design tokens (revision 3, "growth rings"). Engineers use these names; nobody invents a colour.
+   Light is the default; dark follows prefers-color-scheme. Every text/background pair used by the mockups is at or
+   above 4.5:1; the ratio against --bg / --surface / --surface-sunken is noted inline (computed in the design
+   hand-back). Ring strokes that are graphics only are at or above 3:1 against --bg (WCAG non-text) unless marked
+   "recedes". System fonts only (charter constraint 5). */
+
+:root {
+  color-scheme: light dark;
+
+  /* Type. Prose is the platform sans; everything that is data (ids, actors, times, counts, commands) is the
+     platform mono with tabular numerals. The phase word and the live figures use the display face, light weight. */
+  --font-body: system-ui, -apple-system, "Segoe UI Variable Text", "Segoe UI", Roboto, sans-serif;
+  --font-display: system-ui, -apple-system, "Segoe UI Variable Display", "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --text-2xs: 0.6875rem;  /* 11px  ring labels, leader text, legend */
+  --text-xs: 0.75rem;     /* 12px  evidence refs, timestamps, chips */
+  --text-sm: 0.875rem;    /* 14px  secondary copy, meta lines */
+  --text-md: 1rem;        /* 16px  body, summaries, card titles on phone */
+  --text-lg: 1.125rem;    /* 18px  waiting-card and desktop card titles */
+  --text-xl: 1.5rem;      /* 24px  section headings, cycle headings */
+  --text-2xl: 2rem;       /* 32px  the phase word on phone, centre count */
+  --text-3xl: 3rem;       /* 48px  the phase word on desktop */
+  --text-num: 1.75rem;    /* 28px  live figures: spend, elapsed, tokens */
+  --text-num-lg: 2.5rem;  /* 40px  live figures on desktop */
+  --weight-light: 300;
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+  --leading-tight: 1.05;
+  --leading-snug: 1.3;
+  --leading-body: 1.5;
+  --tracking-tight: -0.02em;
+  --tracking-caps: 0.1em;
+  --numeric: tabular-nums;
+
+  /* Space (4px base) */
+  --space-1: 0.25rem;   /* 4  */
+  --space-2: 0.5rem;    /* 8  */
+  --space-3: 0.75rem;   /* 12 */
+  --space-4: 1rem;      /* 16 */
+  --space-5: 1.5rem;    /* 24 */
+  --space-6: 2rem;      /* 32 */
+  --space-7: 3rem;      /* 48 */
+  --space-8: 4rem;      /* 64 */
+
+  /* Size */
+  --tap-min: 44px;          /* smallest tappable control (phone) */
+  --control-h: 40px;        /* selects, buttons */
+  --nav-h: 56px;            /* bottom tab bar on phone */
+  --header-h: 52px;         /* top line on phone; 56px on desktop */
+  --panel-w: 460px;         /* right panel on desktop Now and Timeline */
+  --page-max: 1600px;       /* the shell stops growing here; 1280 is the design width */
+  --prose-max: 68ch;        /* summaries and report text never run wider than this */
+
+  /* Rings. One SVG viewBox 0 0 400 400 drawn at these CSS sizes; strokes are in viewBox units. */
+  --rings-desktop: clamp(420px, calc(100vh - 340px), 620px); /* Now and Timeline picture on desktop: grows with the window */
+  --rings-phone: 460px;     /* Now horizon on phone: wider than the viewport, cropped by .horizon */
+  --rings-phone-map: 300px; /* Timeline map on phone, drawn whole */
+  --horizon-h: 320px;       /* visible height of the horizon crop on phone */
+  --ring-w: 14;             /* ring stroke width (viewBox units) */
+  --ring-gap: 36;           /* distance between ring centrelines (viewBox units) */
+  --tick-exec: 14;          /* tick length, executive (viewBox units) */
+  --tick-execution: 9;      /* tick length, execution and review */
+  --tick-mech: 5;           /* tick length, mechanical */
+  --tick-ceo: 22;           /* tick length, ceo (amber, 3 wide) */
+  --glyph-lg: 64px;         /* item glyph in a Work column header (desktop) */
+  --glyph-md: 40px;         /* item glyph in the Work scale strip (phone) */
+  --glyph-sm: 20px;         /* item glyph on a card */
+  --edge-dot: 7;            /* radius of an agent dot on the growth edge (viewBox units) */
+  --edge-halo: 16;          /* radius of the halo behind the growth edge */
+
+  /* Radius */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 14px;
+  --radius-pill: 999px;
+
+  /* Motion (see motion.md; nothing moves that is not named there; transform, opacity and SVG stroke drawing only) */
+  --dur-1: 120ms;           /* micro: hover, press, colour of a tick */
+  --dur-2: 240ms;           /* standard: card leave, glyph crossfade, digit roll */
+  --dur-3: 480ms;           /* large: view switch, gap closing, arc growth */
+  --dur-breathe: 3200ms;    /* one breath of the growth-edge halo (ambient loop, aria-hidden) */
+  --ease-out: cubic-bezier(0.2, 0, 0, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-seal: cubic-bezier(0.3, 0, 0.1, 1);   /* a gap closing: fast start, settles */
+  --stagger: 30ms;          /* per-row delay on expand or filter, capped at 8 rows */
+
+  /* Focus ring (keyboard) */
+  --focus-width: 3px;
+  --focus-offset: 2px;
+
+  /* Colour, light: chalk and ink. */
+  --bg: #EFEFE9;
+  --surface: #FAFAF6;        /* cards, selects, report page */
+  --surface-sunken: #E2E3DA; /* code, chips, collapsed stubs */
+  --line: #CFCFC5;           /* hairlines */
+  --line-strong: #8E8E84;    /* control borders */
+  --ink: #15201B;            /* 14.5:1 on bg, 16.0 on surface, 12.9 on sunken */
+  --ink-muted: #4E5A54;      /*  6.2:1 on bg,  6.9 on surface,  5.6 on sunken */
+  --ink-faint: rgba(21, 32, 27, 0.38);  /* disabled only, never information */
+
+  /* The rings themselves: ink wash. Track is the unfilled circle; arc is a phase; tick is an event. */
+  --ring-track: rgba(21, 32, 27, 0.10);   /* recedes by design */
+  --ring-arc: rgba(21, 32, 27, 0.18);     /* recedes by design */
+  --ring-tick: #15201B;
+  --ring-tick-faint: rgba(21, 32, 27, 0.45); /* mechanical events */
+
+  /* Three colours of meaning and nothing else. */
+  --signal: #0D6E42;         /* 5.5:1 on bg, 6.0 on surface, 4.9 on sunken  live, running, verified */
+  --signal-soft: #D3EBDC;    /* ink on it 13.3, signal on it 5.0 */
+  --on-signal: #FFFFFF;      /* 6.3:1 on signal */
+  --attention: #945000;      /* 5.3:1 on bg, 5.8 on surface, 4.7 on sunken  waiting on the CEO; the gap */
+  --attention-soft: #F7E6C6; /* ink on it 13.6, attention on it 5.0 */
+  --on-attention: #FFFFFF;   /* 6.1:1 on attention */
+  --danger: #B3261E;         /* 5.7:1 on bg, 6.2 on surface, 5.1 on sunken  blocked, error */
+  --danger-soft: #F6D9D6;    /* danger on it 4.9 */
+  --focus: #15201B;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0C110F;           /* moss black */
+    --surface: #161C19;
+    --surface-sunken: #070A09;
+    --line: #273029;
+    --line-strong: #4B5750;
+    --ink: #EAEDE6;          /* 16.1:1 on bg */
+    --ink-muted: #A6AFA9;    /*  8.5:1 on bg, 7.7 on surface */
+    --ink-faint: rgba(234, 237, 230, 0.38);
+
+    --ring-track: rgba(234, 237, 230, 0.10);
+    --ring-arc: rgba(234, 237, 230, 0.20);
+    --ring-tick: #EAEDE6;
+    --ring-tick-faint: rgba(234, 237, 230, 0.45);
+
+    --signal: #5FE0A0;       /* 11.5:1 on bg */
+    --signal-soft: #10311F;  /* signal on it 8.5 */
+    --on-signal: #06180D;    /* 11.1:1 on signal */
+    --attention: #F6BC5A;    /* 11.1:1 on bg */
+    --attention-soft: #3A2A0E; /* ink on it 11.7, attention on it 8.1 */
+    --on-attention: #1C1304; /* 10.7:1 on attention */
+    --danger: #F39089;       /*  8.3:1 on bg */
+    --danger-soft: #3D1A18;  /* danger on it 6.7 */
+    --focus: #EAEDE6;
+  }
+}
+
+/* Reduced motion: the OS setting or the URL flag motion=reduce (html[data-motion="reduce"], ADR-0004). Every
+   duration is 0 so each motion resolves to its end frame; the halo is drawn once, static (motion.md row 6). */
+@media (prefers-reduced-motion: reduce) {
+  :root { --dur-1: 0ms; --dur-2: 0ms; --dur-3: 0ms; --dur-breathe: 0ms; --stagger: 0ms; }
+}
+html[data-motion="reduce"] { --dur-1: 0ms; --dur-2: 0ms; --dur-3: 0ms; --dur-breathe: 0ms; --stagger: 0ms; }

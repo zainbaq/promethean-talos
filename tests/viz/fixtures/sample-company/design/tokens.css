@@ -1,0 +1,121 @@
+/* focus: design tokens. Engineers use these names; nobody invents a colour.
+   Light is the default; dark follows prefers-color-scheme. Every text/background
+   pair used by the mockups was checked at or above 4.5:1 (see direction.md). */
+
+:root {
+  color-scheme: light dark;
+
+  /* Type */
+  --font-display: ui-rounded, "SF Pro Rounded", "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+  --font-body: system-ui, -apple-system, "Segoe UI Variable Text", "Segoe UI", Roboto, sans-serif;
+  --text-xs: 0.75rem;    /* 12px  helper, units */
+  --text-sm: 0.875rem;   /* 14px  secondary copy */
+  --text-md: 1.0625rem;  /* 17px  body, field labels */
+  --text-lg: 1.25rem;    /* 20px  buttons, bar title */
+  --text-xl: 1.75rem;    /* 28px  section headings */
+  --text-2xl: 2.5rem;    /* 40px  stepper values */
+  --text-display: clamp(5.5rem, 30vw, 9rem); /* 88..144px  countdown */
+  --weight-light: 300;
+  --weight-regular: 400;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+  --leading-tight: 1;
+  --leading-snug: 1.25;
+  --leading-body: 1.5;
+  --tracking-caps: 0.14em;
+
+  /* Space (4px base) */
+  --space-1: 0.25rem;  /* 4  */
+  --space-2: 0.5rem;   /* 8  */
+  --space-3: 0.75rem;  /* 12 */
+  --space-4: 1rem;     /* 16 */
+  --space-5: 1.5rem;   /* 24 */
+  --space-6: 2rem;     /* 32 */
+  --space-7: 3rem;     /* 48 */
+  --space-8: 4rem;     /* 64 */
+
+  /* Size */
+  --tap-min: 48px;       /* smallest tappable control */
+  --control-h: 56px;     /* secondary buttons, steppers, switch row */
+  --primary-h: 64px;     /* Start / Pause */
+  --switch-w: 64px;
+  --switch-h: 36px;
+  --content-max: 480px;  /* the app is one phone-width column, even on desktop */
+
+  /* Radius */
+  --radius-sm: 8px;
+  --radius-md: 14px;
+  --radius-lg: 22px;
+  --radius-pill: 999px;
+
+  /* Motion */
+  --dur-fast: 120ms;
+  --dur-base: 240ms;
+  --dur-slow: 600ms;
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+  --tide-step: 1000ms linear;   /* the tide moves once a second, in a straight line */
+
+  /* Focus ring (keyboard) */
+  --focus-width: 3px;
+  --focus-offset: 3px;
+
+  /* Colour, light */
+  --bg: #F3EFE6;             /* warm paper */
+  --surface: #FBF9F4;        /* cards, fields */
+  --line: #D9D3C7;           /* hairlines */
+  --line-strong: #B9B2A4;    /* secondary button borders */
+  --ink: #1C2321;            /* primary text          13.9:1 on bg */
+  --ink-muted: #505E5A;      /* secondary text         5.9:1 on bg */
+  --ink-disabled: rgba(28, 35, 33, 0.38);
+
+  --tide: #D3E4DF;           /* focus water */
+  --tide-edge: #1D5A56;      /* water line */
+  --tide-break: #F0DAC2;     /* break water */
+  --tide-break-edge: #8F4418;
+
+  --accent: #1D5A56;         /* focus: buttons, phase label   6.9:1 on bg */
+  --accent-hover: #174A47;
+  --on-accent: #FFFFFF;      /*                              7.9:1 on accent */
+  --accent-break: #8F4418;   /* break: buttons, phase label   6.0:1 on bg */
+  --accent-break-hover: #773812;
+  --on-accent-break: #FFFFFF;
+
+  --danger: #A32D2D;         /* invalid setting               6.7:1 on bg */
+  --focus: #1C2321;          /* ring colour; sits on bg via the offset gap */
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121717;           /* charcoal with a green cast */
+    --surface: #1A2121;
+    --line: #2C3634;
+    --line-strong: #4A5755;
+    --ink: #ECE8DF;          /*                              14.8:1 on bg */
+    --ink-muted: #A2ACA7;    /*                               7.8:1 on bg */
+    --ink-disabled: rgba(236, 232, 223, 0.38);
+
+    --tide: #1B3230;
+    --tide-edge: #8ED2C8;
+    --tide-break: #3A2816;
+    --tide-break-edge: #ECA66A;
+
+    --accent: #8ED2C8;       /*                              10.5:1 on bg */
+    --accent-hover: #A5DDD5;
+    --on-accent: #0F1A19;    /*                              10.3:1 on accent */
+    --accent-break: #ECA66A; /*                               8.8:1 on bg */
+    --accent-break-hover: #F2B985;
+    --on-accent-break: #1A1208;
+
+    --danger: #F08A8A;
+    --focus: #ECE8DF;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-fast: 0ms;
+    --dur-base: 0ms;
+    --dur-slow: 0ms;
+    --tide-step: 0ms;        /* the tide still moves, it just does not animate between steps */
+  }
+}

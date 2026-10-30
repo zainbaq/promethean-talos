@@ -5,3 +5,5 @@ Thumbs.db
 # local Claude Code settings in this repo (the template's settings live under template/)
 .claude/settings.local.json
 .venv/
+.pytest_cache/
+ms-playwright/

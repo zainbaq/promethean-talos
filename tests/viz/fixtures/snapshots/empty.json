@@ -1,0 +1,90 @@
+{
+ "schema": 1,
+ "generated_at": "2026-10-29T06:00:00Z",
+ "checked_at": "2026-10-29T06:00:00Z",
+ "version": 1,
+ "project": {
+  "name": "new-project",
+  "folder": "new-project",
+  "root": "D:/tmp/new-project",
+  "record": "D:/tmp/new-project/company",
+  "size": "medium",
+  "teams": []
+ },
+ "charter": {
+  "status": "draft",
+  "title": "Charter",
+  "approved_event": null
+ },
+ "cycle": {
+  "number": 0,
+  "open": false,
+  "budget": "",
+  "started_at": null,
+  "ended_at": null,
+  "elapsed_minutes": null
+ },
+ "counts": {
+  "items": {
+   "proposed": 0,
+   "ready": 0,
+   "assigned": 0,
+   "in_progress": 0,
+   "blocked": 0,
+   "completed": 0,
+   "verified": 0,
+   "rejected": 0,
+   "shipped": 0,
+   "total": 0
+  },
+  "events": 0,
+  "event_types": 0,
+  "ceo_questions_open": 0,
+  "other_questions_open": 0,
+  "lessons": 0
+ },
+ "waiting": [],
+ "events": [],
+ "event_types": [],
+ "actors": [],
+ "items": [],
+ "report": null,
+ "activity": {
+  "status": "unavailable",
+  "reason": "no transcript folder for this record (looked in C:/Users/ceo/.claude/projects)",
+  "checked_at": "2026-10-29T06:00:00Z",
+  "window_seconds": 120,
+  "recent_seconds": 300,
+  "transcript_dirs": [],
+  "phase": {
+   "status": "unknown",
+   "name": null,
+   "session": null,
+   "since": null
+  },
+  "agents": [],
+  "last_run": null
+ },
+ "spend": {
+  "cycle": 0,
+  "source": "events-only",
+  "events": {
+   "runs": 0,
+   "cost_usd": 0.0,
+   "tokens": 0,
+   "input_tokens": 0,
+   "cache_creation_input_tokens": 0,
+   "cache_read_input_tokens": 0,
+   "output_tokens": 0,
+   "by_phase": []
+  },
+  "transcripts": {
+   "available": false,
+   "reason": "no Claude Code transcripts for this project yet",
+   "tokens": null,
+   "calls": null,
+   "by_role": []
+  }
+ },
+ "errors": []
+}

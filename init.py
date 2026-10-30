@@ -2,7 +2,7 @@
 """
 init.py — stamp the Talos framework into a target project.
 
-    python init.py /path/to/project [--brief brief.md] [--teams core,design] [--force] [--prune]
+    python init.py /path/to/project [--brief brief.md] [--teams core,design] [--force] [--prune] [--viz]
 
 What it does (idempotent; safe to re-run to pick up framework updates):
   1. Copies the agents of the staffed teams (template/tools/talos/teams.json; default: all) and
@@ -11,7 +11,8 @@ What it does (idempotent; safe to re-run to pick up framework updates):
      of teams no longer listed.
   2. Merges template/.claude/settings.json into the project's .claude/settings.json
      (hooks are appended if not already present; permissions are unioned).
-  3. Copies template/tools/talos/ (the record CLI) into the project.
+  3. Copies template/tools/talos/ (the record CLI) into the project. The visualizer
+     (tools/talos/viz) is left out unless --viz is given: projects are headless by default.
   4. Appends template/CLAUDE.talos.md to the project's CLAUDE.md between markers
      (replaces the marked section on re-run).
   5. Runs `talos init` to create the company/ record scaffold, seeding company/brief.md
@@ -43,12 +44,14 @@ def write_lf(path, text, encoding="utf-8"):
         f.write(text)
 
 
-def copy_tree(src: Path, dst: Path, force: bool) -> tuple[list[str], list[str]]:
+def copy_tree(src: Path, dst: Path, force: bool, skip: tuple[str, ...] = ()) -> tuple[list[str], list[str]]:
     written, kept = [], []
     for p in src.rglob("*"):
         if p.is_dir() or "__pycache__" in p.parts or p.suffix == ".pyc":
             continue
         rel = p.relative_to(src)
+        if any(rel.as_posix() == s or rel.as_posix().startswith(s + "/") for s in skip):
+            continue
         target = dst / rel
         target.parent.mkdir(parents=True, exist_ok=True)
         if target.exists() and not force:
@@ -150,6 +153,9 @@ def main() -> None:
     ap.add_argument("--teams", help="comma-separated teams to staff (see template/tools/talos/teams.json); default: every team")
     ap.add_argument("--prune", action="store_true", help="remove stamped agents of teams not in --teams")
     ap.add_argument("--python", default="3.12", help="Python version for the project venv created with uv (default 3.12)")
+    ap.add_argument("--viz", action="store_true",
+                    help="also install the visualizer (tools/talos/viz; start it with `tools/talos/talos viz`). "
+                         "Projects are headless by default; a project that already has it keeps it on re-stamp")
     args = ap.parse_args()
 
     target = Path(args.target).resolve()
@@ -174,7 +180,8 @@ def main() -> None:
 
     print(f".claude/settings.json: {merge_settings(TEMPLATE / '.claude' / 'settings.json', target / '.claude' / 'settings.json')}")
 
-    w, k = copy_tree(TEMPLATE / "tools", target / "tools", True)
+    with_viz = args.viz or (target / "tools" / "talos" / "viz" / "server.py").is_file()
+    w, k = copy_tree(TEMPLATE / "tools", target / "tools", True, skip=() if with_viz else ("talos/viz",))
     for name in ("talos", "run", "pyrun"):
         try:
             p = target / "tools" / "talos" / name
@@ -182,6 +189,8 @@ def main() -> None:
         except Exception:
             pass
     print(f"tools/talos: {len(w)} written (always refreshed)")
+    print("visualizer: installed (start it with `tools/talos/talos viz`)" if with_viz
+          else "visualizer: not installed (headless; add it with --viz)")
 
     print(f"CLAUDE.md: {splice_claude_md(TEMPLATE / 'CLAUDE.talos.md', target / 'CLAUDE.md')}")
 

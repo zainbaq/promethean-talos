@@ -1,0 +1,16 @@
+{
+  "cycle": 1,
+  "cycle_open": false,
+  "counters": {
+    "Q": 1,
+    "ITEM": 7,
+    "ADR": 2,
+    "SPEC": 2,
+    "LESSON": 5
+  },
+  "teams": [
+    "core",
+    "design"
+  ],
+  "budget": "2 items through design QA and verification in one cycle (charter \u00a77); parallelism 2"
+}

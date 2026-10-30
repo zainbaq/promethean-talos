@@ -1,0 +1,6 @@
+# Visualizer tests only (the framework's own tests are unittest, standard library).
+# Install into the repo venv: uv pip install --python .venv -r tests/viz/requirements-dev.txt
+# Browser for the UI tests: PLAYWRIGHT_BROWSERS_PATH=.venv/ms-playwright .venv/Scripts/python -m playwright install --only-shell chromium
+# Run: .venv/Scripts/python -m pytest tests/viz -q   (UI tests skip when the browser is missing)
+pytest==9.2.0
+playwright==1.64.1

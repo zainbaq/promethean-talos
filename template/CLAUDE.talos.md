@@ -40,6 +40,9 @@ A spec hands from executive to execution only if it has: goal, non-goals, exact 
 ### Where the product is
 Work happens on branches `vc/<item-id>` in worktrees. Nothing reaches the base branch until the CEO approves the release. Every cycle report states the repository path, base branch, and each verified item's branch and commit.
 
+### Visualizer (optional)
+Projects are headless by default. When `tools/talos/viz/` exists (stamped with `init.py --viz`), `tools/talos/talos viz [--host H --port P --allow-host NAME]` serves a read-only live view of this record for the CEO. Never start it on your own; the CEO asks for it.
+
 ### Toolchain
 Every project carries its own toolchain: a `.venv/` created at kickoff with `uv` (which downloads its own Python), dependencies pinned in the project manifest, project-local Node modules. No role uses, installs into, or relies on Anaconda, a system interpreter, or anything else that happens to be on the machine; `uv` and `git` are the only machine-level tools assumed. The `talos` CLI itself runs on the project venv.
 

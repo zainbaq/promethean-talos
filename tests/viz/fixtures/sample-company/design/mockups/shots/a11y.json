@@ -1,0 +1,22 @@
+{
+  "settings-phone-light": {
+    "screenshot": "company\\design\\mockups\\shots\\settings-phone-light.png",
+    "horizontal_overflow": false,
+    "violations": []
+  },
+  "settings-phone-dark": {
+    "screenshot": "company\\design\\mockups\\shots\\settings-phone-dark.png",
+    "horizontal_overflow": false,
+    "violations": []
+  },
+  "settings-desktop-light": {
+    "screenshot": "company\\design\\mockups\\shots\\settings-desktop-light.png",
+    "horizontal_overflow": false,
+    "violations": []
+  },
+  "settings-desktop-dark": {
+    "screenshot": "company\\design\\mockups\\shots\\settings-desktop-dark.png",
+    "horizontal_overflow": false,
+    "violations": []
+  }
+}

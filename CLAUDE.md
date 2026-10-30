@@ -11,5 +11,6 @@ This repository **is the template**, not a stamped project. There is no `company
   ```
 - `tools/talos/talos.py`, `usage.py` and the hook scripts are standard-library Python 3.8+; keep them dependency-free.
 - Tests: create the repo venv once with `uv venv --python 3.12 .venv`, then run `.venv/Scripts/python -m unittest discover -s tests` (Windows) or `.venv/bin/python -m unittest discover -s tests`.
+- The visualizer lives in `template/tools/talos/viz/` (stdlib only) and is stamped only with `init.py --viz`; projects are headless by default. Its tests are pytest + Playwright under `tests/viz/` (setup in `tests/viz/requirements-dev.txt`): `.venv/Scripts/python -m pytest tests/viz -q`. To view any project from this checkout: `cd template/tools/talos && python -m viz --root <project>`.
 - Design rationale: `docs/DESIGN.md`. Role charters: `docs/ROLES.md`. How to extend: `docs/EXTENDING.md`.
 - Public repo (MIT) maintained by Promethean Labs. Keep client- or project-specific content out of `template/`; project seeds belong in the stamped project's `company/knowledge/`.

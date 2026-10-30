@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>focus: settings</title>
+<link rel="stylesheet" href="../tokens.css">
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; }
+  body {
+    background: var(--bg); color: var(--ink);
+    font-family: var(--font-body); font-size: var(--text-md); line-height: var(--leading-body);
+    -webkit-font-smoothing: antialiased;
+  }
+  :focus-visible { outline: var(--focus-width) solid var(--focus); outline-offset: var(--focus-offset); }
+
+  .app {
+    max-width: var(--content-max); min-height: 100dvh; margin: 0 auto;
+    display: flex; flex-direction: column; background: var(--bg);
+  }
+  @media (min-width: 600px) { .app { border-left: 1px solid var(--line); border-right: 1px solid var(--line); } }
+
+  /* Top bar (shared with timer.html) */
+  .bar {
+    height: var(--control-h); padding: 0 var(--space-4);
+    display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; flex: none;
+  }
+  .bar-title {
+    margin: 0; font-family: var(--font-display); font-size: var(--text-lg); font-weight: var(--weight-semibold); color: var(--ink);
+  }
+  .bar-link {
+    display: inline-flex; align-items: center; gap: var(--space-1); min-height: var(--tap-min); padding: 0 var(--space-3);
+    margin-left: calc(-1 * var(--space-3)); border-radius: var(--radius-md); text-decoration: none; justify-self: start;
+    font-weight: var(--weight-semibold); color: var(--accent);
+    transition: background var(--dur-fast) var(--ease);
+  }
+  .bar-link:hover { background: var(--surface); }
+  .bar-link svg { width: 20px; height: 20px; }
+
+  /* Stage and tide (shared) */
+  .stage { position: relative; flex: 1; overflow: hidden; display: flex; flex-direction: column; --level: 100%; }
+  .tide {
+    position: absolute; left: 0; right: 0; bottom: 0; height: var(--level);
+    background: var(--tide); border-top: 2px solid var(--tide-edge);
+  }
+  .sheet {
+    position: relative; display: grid; gap: var(--space-3);
+    padding: var(--space-5) var(--space-4) calc(var(--space-6) + env(safe-area-inset-bottom));
+  }
+
+  /* Field */
+  .field {
+    background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-lg);
+    padding: var(--space-4) var(--space-5); display: grid; gap: var(--space-3);
+  }
+  .field-row { grid-template-columns: 1fr auto; align-items: center; }
+  .field-label { display: block; font-weight: var(--weight-semibold); color: var(--ink); }
+  .field-help { margin: var(--space-1) 0 0; font-size: var(--text-sm); color: var(--ink-muted); }
+
+  /* Stepper */
+  .stepper { display: grid; grid-template-columns: var(--tap-min) 1fr var(--tap-min); align-items: center; height: var(--control-h); }
+  .step {
+    width: var(--tap-min); height: var(--tap-min); border-radius: var(--radius-md); cursor: pointer;
+    background: var(--surface); border: 1px solid var(--line-strong); color: var(--ink);
+    font-family: var(--font-body); font-size: var(--text-xl); line-height: 1; display: grid; place-items: center;
+    transition: background var(--dur-fast) var(--ease);
+  }
+  .step:hover { background: var(--bg); }
+  .step:disabled { color: var(--ink-disabled); border-color: var(--line); cursor: default; }
+  .value { display: flex; align-items: baseline; justify-content: center; gap: var(--space-2); }
+  .value input {
+    width: 3ch; padding: 0; border: 0; background: transparent; color: var(--ink); text-align: center;
+    font-family: var(--font-display); font-size: var(--text-2xl); font-weight: var(--weight-light);
+    line-height: var(--leading-tight); font-variant-numeric: tabular-nums; -moz-appearance: textfield; appearance: textfield;
+    border-radius: var(--radius-sm);
+  }
+  .value input::-webkit-outer-spin-button, .value input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  .unit { font-size: var(--text-sm); color: var(--ink-muted); }
+
+  /* Switch */
+  .switch {
+    position: relative; width: var(--switch-w); height: var(--switch-h); border: 0; border-radius: var(--radius-pill);
+    background: var(--line-strong); cursor: pointer; padding: 0; transition: background var(--dur-base) var(--ease);
+  }
+  .switch[aria-checked="true"] { background: var(--accent); }
+  .switch:hover { background: var(--ink-muted); }
+  .switch[aria-checked="true"]:hover { background: var(--accent-hover); }
+  .switch .knob {
+    position: absolute; top: 4px; left: 4px; width: calc(var(--switch-h) - 8px); height: calc(var(--switch-h) - 8px);
+    border-radius: var(--radius-pill); background: var(--surface); transition: transform var(--dur-base) var(--ease);
+  }
+  .switch[aria-checked="true"] .knob { transform: translateX(calc(var(--switch-w) - var(--switch-h))); }
+  .switch-cell { display: flex; align-items: center; min-height: var(--tap-min); }
+
+  .note { margin: var(--space-2) 0 0; text-align: center; font-size: var(--text-sm); color: var(--ink-muted); }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="bar">
+    <a class="bar-link" href="timer.html">
+      <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M12.5 4l-6 6 6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Timer
+    </a>
+    <h1 class="bar-title">Settings</h1>
+    <span aria-hidden="true"></span>
+  </header>
+
+  <main class="stage">
+    <div class="tide" aria-hidden="true"></div>
+
+    <form class="sheet" onsubmit="return false">
+      <section class="field">
+        <div>
+          <label class="field-label" for="focus-minutes">Focus length</label>
+          <p class="field-help" id="focus-help">Minutes per session, 1 to 120.</p>
+        </div>
+        <div class="stepper">
+          <button class="step" type="button" aria-label="Decrease focus length by one minute">&minus;</button>
+          <div class="value">
+            <input id="focus-minutes" type="number" inputmode="numeric" min="1" max="120" step="1" value="25" aria-describedby="focus-help">
+            <span class="unit" aria-hidden="true">min</span>
+          </div>
+          <button class="step" type="button" aria-label="Increase focus length by one minute">+</button>
+        </div>
+      </section>
+
+      <section class="field">
+        <div>
+          <label class="field-label" for="break-minutes">Break length</label>
+          <p class="field-help" id="break-help">Minutes after each session, 1 to 60.</p>
+        </div>
+        <div class="stepper">
+          <button class="step" type="button" aria-label="Decrease break length by one minute">&minus;</button>
+          <div class="value">
+            <input id="break-minutes" type="number" inputmode="numeric" min="1" max="60" step="1" value="5" aria-describedby="break-help">
+            <span class="unit" aria-hidden="true">min</span>
+          </div>
+          <button class="step" type="button" aria-label="Increase break length by one minute">+</button>
+        </div>
+      </section>
+
+      <section class="field field-row">
+        <div>
+          <span class="field-label" id="sound-label">Sound at 0:00</span>
+          <p class="field-help" id="sound-help">One soft chime when the countdown ends.</p>
+        </div>
+        <div class="switch-cell">
+          <button class="switch" type="button" role="switch" aria-checked="true" aria-labelledby="sound-label" aria-describedby="sound-help">
+            <span class="knob"></span>
+          </button>
+        </div>
+      </section>
+
+      <p class="note">Changes are saved on this device as you make them.</p>
+    </form>
+  </main>
+</div>
+</body>
+</html>

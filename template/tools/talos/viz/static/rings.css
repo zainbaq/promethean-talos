@@ -1,0 +1,58 @@
+/* The rings (components.md "The rings", motion rows 2, 3, 4, 6, 7, 8). Transitions carry transform, opacity and
+   stroke drawing only; durations are tokens. Reference: company/design/mockups/mockup.css lines 46-74. */
+
+.rings { display: block; width: var(--rings-phone-map); height: auto; margin: 0 auto; overflow: visible; }
+.rings .track { fill: none; stroke: var(--ring-track); stroke-width: var(--ring-w); }
+.rings .arc { fill: none; stroke: var(--ring-arc); stroke-width: var(--ring-w); stroke-linecap: butt; transition: opacity var(--dur-2) var(--ease-in-out), stroke-dashoffset var(--dur-3) var(--ease-out); }
+.rings .arc[data-still] { transition: none; }
+.rings .arc[data-entering] { opacity: 0; }
+.rings .arc--live, .rings .arc--ending { stroke: var(--signal); }
+.rings .arc[data-leaving] { opacity: 0; }
+/* Motion 3: the open ring's arcs close the gap with --ease-seal (motion.md row 3); the running arc keeps --ease-out (row 7). */
+.rings .ring--open .arc:not(.arc--live):not([data-still]) { transition: opacity var(--dur-2) var(--ease-in-out), stroke-dashoffset var(--dur-3) var(--ease-seal); }
+.rings .tick { stroke: var(--ring-tick); stroke-width: 1.5; stroke-linecap: round; transition: opacity var(--dur-2) var(--ease-in-out), transform var(--dur-2) var(--ease-out); transform-box: fill-box; transform-origin: center; }
+.rings .tick[data-entering] { transform: scale(0); }
+.rings .tick--mechanical { stroke: var(--ring-tick-faint); }
+.rings .tick--ceo { stroke: var(--attention); stroke-width: 3; }
+.rings .tick--signal { stroke: var(--signal); stroke-width: 2.5; }
+.rings .gap-cap { stroke: var(--attention); stroke-width: 3; stroke-linecap: round; transition: opacity var(--dur-3) var(--ease-seal); }
+.rings .gap-pin { stroke: var(--attention); stroke-width: 4; stroke-linecap: round; }
+.rings .pin { transition: opacity var(--dur-2) var(--ease-in-out); }
+.rings .pin[data-entering], .rings .pin[data-leaving], .rings .gap-cap[data-entering], .rings .gap-cap[data-leaving] { opacity: 0; }
+.rings .leader { stroke: var(--attention); stroke-width: 1; fill: none; }
+.rings .leader--agent { stroke: var(--ink-muted); fill: none; }
+.rings .label { font-family: var(--font-mono); font-size: 8.5px; fill: var(--ink); }
+.rings .label--attention { fill: var(--attention); font-weight: var(--weight-semibold); }
+.rings .label--muted { fill: var(--ink-muted); }
+.rings .label--phase { font-size: 7px; fill: var(--ink-muted); letter-spacing: 0.08em; text-transform: uppercase; }
+.rings .label--cycle { font-size: 7.5px; fill: var(--ink-muted); }
+
+/* The growth edge: the group rotates to the edge angle (row 7), each agent group rotates about the centre (row 8). */
+.rings .edge, .rings .edge-agent { transform-origin: 200px 200px; transition: transform var(--dur-3) var(--ease-out); }
+.rings .edge-agent > circle { transform-box: fill-box; transform-origin: center; transition: transform var(--dur-2) var(--ease-out); }
+.rings .edge-agent[data-entering] > circle { transform: scale(0); }
+.rings .edge-halo { fill: var(--signal); opacity: 0.3; transform-box: fill-box; transform-origin: center; animation: breathe var(--dur-breathe) var(--ease-in-out) infinite; }
+.rings .edge-dot { fill: var(--signal); stroke: var(--bg); stroke-width: 2; }
+.rings .edge-dot--recent { fill: var(--bg); stroke: var(--ink-muted); stroke-width: 1.5; }
+.rings .edge-tip { fill: var(--signal); stroke: var(--bg); stroke-width: 2; }
+.horizon .label--agent, .horizon .leader--agent { display: none; }
+
+.rings.is-filtered .tick { opacity: 0.12; }
+.rings.is-filtered .tick.is-match { opacity: 1; }
+.rings.is-filtered .arc { opacity: 0.5; }
+
+@keyframes breathe { 0%, 100% { transform: scale(1); opacity: 0.3; } 50% { transform: scale(1.5); opacity: 0.06; } }
+html[data-motion="reduce"] .rings .edge-halo, [data-motion="reduce"] .rings .edge-halo { animation: none; transform: scale(1.25); opacity: 0.2; }
+@media (prefers-reduced-motion: reduce) { .rings .edge-halo { animation: none; transform: scale(1.25); opacity: 0.2; } }
+
+.glyph { width: var(--glyph-sm); height: var(--glyph-sm); flex: none; color: var(--ink-muted); }
+.glyph--in_progress, .glyph--verified { color: var(--signal); }
+.glyph--completed { color: var(--ink); }
+.glyph--blocked { color: var(--danger); }
+.glyph--empty { color: var(--line-strong); opacity: 0.6; }
+
+@media (min-width: 900px) {
+  .rings { width: var(--rings-desktop); }
+  .rings .label { font-size: 7.5px; }
+  .horizon .label--agent, .horizon .leader--agent { display: block; }
+}

@@ -29,6 +29,7 @@ Commands:
     usage [--cycle N] [--by ...] measured token usage from Claude Code transcripts
     journal [--date YYYY-MM-DD]  render ledger to company/journal/
     consolidate                  rebuild knowledge/INDEX.md and flag duplicates
+    viz [--host H --port P ...]  serve the visualizer (opt-in: stamp with init.py --viz)
 
 Set TALOS_ACTOR (or pass --actor) so events carry the role that made them.
 """
@@ -1183,10 +1184,32 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("report"); s.add_argument("--cycle", type=int); s.set_defaults(fn=cmd_report)
     s = sub.add_parser("journal"); s.add_argument("--date"); s.set_defaults(fn=cmd_journal)
     s = sub.add_parser("consolidate"); s.set_defaults(fn=cmd_consolidate)
+    s = sub.add_parser("viz", help="serve the visualizer for this project (opt-in: init.py --viz); "
+                       "flags pass through, e.g. --host 0.0.0.0 --port 8000 --allow-host NAME", add_help=False)
+    s.add_argument("rest", nargs=argparse.REMAINDER); s.set_defaults(fn=cmd_viz)
     return p
 
 
+def cmd_viz(args) -> None:
+    """Serve the visualizer for this project (opt-in: stamped with init.py --viz). Read-only; stdlib only."""
+    here = Path(__file__).resolve().parent
+    if not (here / "viz" / "server.py").is_file():
+        sys.exit("talos: the visualizer is not installed in this project (projects are headless by default). "
+                 "Add it from the framework checkout: python init.py <this project> --viz")
+    sys.path.insert(0, str(here))
+    from viz.server import main as viz_main
+    rest = list(args.rest or [])
+    if rest[:1] == ["--"]:
+        rest = rest[1:]
+    if not any(a == "--root" or a.startswith("--root=") for a in rest):
+        rest = ["--root", str(ROOT)] + rest
+    sys.exit(viz_main(rest))
+
+
 def main(argv: list[str] | None = None) -> None:
+    argv = sys.argv[1:] if argv is None else argv
+    if argv[:1] == ["viz"]:  # every flag after `viz` belongs to the visualizer, which argparse would reject here
+        return cmd_viz(argparse.Namespace(rest=argv[1:]))
     args = build_parser().parse_args(argv)
     args.fn(args)
 
