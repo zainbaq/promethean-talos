@@ -61,7 +61,7 @@ def _strip(d: dict, dotted: list[str]) -> dict:
 
 VOLATILE = ["generated_at", "checked_at", "version", "project.root", "project.record", "project.folder",
             "activity.checked_at", "activity.reason", "activity.transcript_dirs", "spend.transcripts.reason",
-            "report.modified_at"]
+            "report.modified_at", "control"]
 
 
 def test_pinned_snapshot(fixture_snapshot):

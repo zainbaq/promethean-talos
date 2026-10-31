@@ -176,6 +176,52 @@ def _latest_index(ledger: list[dict], kind: str, ref: str | None = None) -> int 
     return None
 
 
+def read_inbox(path: Path, ledger: list[dict]) -> list[dict]:
+    """The CEO's messages, oldest first, each with its acknowledgement if any. A malformed line is skipped."""
+    acks = {e.get("ref"): {"by": e.get("actor"), "summary": e.get("summary"), "ts": e.get("ts")}
+            for e in ledger if e.get("event") == "message.acknowledged"}
+    try:
+        lines = Path(path).read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return []
+    out = []
+    for line in lines:
+        try:
+            m = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(m, dict) and m.get("id"):
+            out.append({"id": m["id"], "ts": m.get("ts") or "", "kind": m.get("kind"), "text": m.get("text") or "", "ack": acks.get(m["id"])})
+    return out
+
+
+def read_runner(path: Path, now: float, fresh_seconds: float = 20.0) -> dict:
+    """Whether `talos work` is alive, from the heartbeat it keeps."""
+    try:
+        d = json.loads(Path(path).read_text(encoding="utf-8"))
+        beat = float(d.get("beat"))
+    except (OSError, ValueError, TypeError):
+        return {"active": False, "doing": None, "phase": None}
+    active = now - beat < fresh_seconds
+    return {"active": active, "doing": d.get("doing") if active else None, "phase": d.get("phase") if active else None}
+
+
+def preset_block(ledger: list[dict]) -> dict:
+    """The current preset, and each preset's measured dollars per verified item in the cycles it ran."""
+    current = "medium"
+    for e in ledger:
+        if e.get("event") == "preset.changed" and e.get("preset") in ("lite", "medium", "heavy"):
+            current = e["preset"]
+    rows = []
+    for name in ("lite", "medium", "heavy"):
+        runs = [e for e in ledger if e.get("event") == "run.completed" and e.get("preset") == name]
+        cycles = {e.get("cycle") for e in runs}
+        verified = sum(1 for e in ledger if e.get("event") == "item.verified" and e.get("cycle") in cycles)
+        cost = sum(float(e.get("cost_usd") or 0) for e in runs)
+        rows.append({"name": name, "usd_per_item": round(cost / verified, 2) if verified and cost else None})
+    return {"preset": current, "presets": rows}
+
+
 def gates(ledger: list[dict], state: dict, items: list[dict]) -> list[dict]:
     """Waiting entries of kind "gate": charter, plan, design, then release by item id."""
     out: list[dict] = []
@@ -185,7 +231,8 @@ def gates(ledger: list[dict], state: dict, items: list[dict]) -> list[dict]:
         if p is None:
             return
         a = _latest_index(ledger, f"{name}.approved")
-        if a is not None and a > p:
+        r = _latest_index(ledger, f"{name}.rejected")
+        if (a is not None and a > p) or (r is not None and r > p):
             return
         ev = ledger[p]
         out.append({
@@ -202,7 +249,7 @@ def gates(ledger: list[dict], state: dict, items: list[dict]) -> list[dict]:
     if not skip_design and _latest_index(ledger, "design-waiver.approved") is None:
         proposed_gate("design", "Design")
 
-    approved_refs = {e.get("ref") for e in ledger if e.get("event") == "release.approved"}
+    approved_refs = {e.get("ref") for e in ledger if e.get("event") in ("release.approved", "release.rejected")}
     for it in sorted(items, key=lambda i: str(i.get("id"))):
         if it.get("status") != "verified" or it.get("id") in approved_refs:
             continue

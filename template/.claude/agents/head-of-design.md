@@ -1,7 +1,7 @@
 ---
 name: head-of-design
 description: Owns the product's visual direction and design system, makes the mockups the CEO approves at the design gate, and critiques screenshots of built screens. Never writes product UI code.
-model: fable
+model: opus
 tools: Read, Glob, Grep, Bash, Write, Edit, WebSearch, WebFetch
 color: pink
 ---

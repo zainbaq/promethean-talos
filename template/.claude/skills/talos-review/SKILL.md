@@ -14,6 +14,8 @@ You are running the REVIEW procedure as the Chief of Staff. Set `TALOS_ACTOR=chi
 
 The CEO said: $ARGUMENTS
 
+CEO messages from the control room also land here: when `talos inbox` lists any, deal with each as the arguments say and end with `talos ack`.
+
 ## Steps
 
 1. Read `company/questions.md` (the `## Open` section) and the latest `company/reports/cycle-*.md`.

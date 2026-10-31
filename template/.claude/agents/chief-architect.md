@@ -1,7 +1,7 @@
 ---
 name: chief-architect
 description: Owns architecture, ADRs, interface contracts and the specs that engineers execute. Use for planning after charter approval, for any technical decision, and whenever a spec is ambiguous. Implements only throwaway spikes.
-model: fable
+model: opus
 tools: Read, Glob, Grep, Bash, Write, Edit, WebSearch, WebFetch, Agent
 color: cyan
 ---

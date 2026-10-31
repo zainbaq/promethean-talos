@@ -33,6 +33,12 @@ Commands:
     handback ITEM --role R --text T   file a hand-back the moment it arrives (company/handbacks/)
     pid add|done|list [PID]      the processes the company started; the only ones it may kill
     doctor                       check this machine has what the company needs
+    preset [lite|medium|heavy]   print or set which model each role uses
+    reject charter|plan|design|release --reason R   record a CEO rejection
+    say --text T                 a CEO message to the company (company/inbox.jsonl)
+    inbox                        CEO messages nobody has acknowledged yet
+    ack MSG --became WHAT        say what a CEO message became
+    work                         run the queue: phases one after another, waiting at gates
 
 Set TALOS_ACTOR (or pass --actor) so events carry the role that made them.
 """
@@ -67,6 +73,8 @@ EVENT_TYPES = {
     "spec.amended", "environment.updated", "followup.raised", "run.completed",
     "design.proposed", "design.approved", "design-waiver.approved", "note",
     "run.stopped", "verify.blocked", "handback.received",
+    "preset.changed", "message.received", "message.acknowledged", "runner.control",
+    "charter.rejected", "plan.rejected", "design.rejected", "release.rejected",
 }
 
 ITEM_STATUSES = ["proposed", "ready", "assigned", "in_progress", "blocked",
@@ -77,6 +85,22 @@ TIERS = {"executive", "review", "execution", "mechanical", "ceo", "unknown"}
 RISKS = ["low", "normal", "high"]
 
 ROLE_TOKEN_WARN = 5_000_000  # the report flags any role past this in one cycle
+
+# Which model each kind of role runs on. Medium is the default; Fable runs only on heavy.
+PRESETS = {
+    "lite": {"executive": "sonnet", "review": "sonnet", "execution": "sonnet", "mechanical": "haiku", "coordination": "sonnet"},
+    "medium": {"executive": "opus", "review": "opus", "execution": "sonnet", "mechanical": "haiku", "coordination": "sonnet"},
+    "heavy": {"executive": "fable", "review": "opus", "execution": "sonnet", "mechanical": "haiku", "coordination": "sonnet"},
+}
+DEFAULT_PRESET = "medium"
+ROLE_KINDS = {
+    "executive": ["chief-of-staff", "head-of-product", "chief-architect", "head-of-research", "head-of-qa", "learning-officer", "head-of-design"],
+    "review": ["code-reviewer", "security-reviewer"],
+    "mechanical": ["librarian"],
+    "execution": ["engineer", "ui-engineer", "test-engineer", "design-qa", "research-analyst", "ux-designer", "devops-engineer", "technical-writer"],
+}
+BECAME = ["correction", "item", "lesson", "note", "answer"]
+RUNNER_WORDS = ("pause", "resume", "stop")
 
 # Planning depth scales with the project (charter frontmatter `size`, set with `talos size`).
 # spec_lines: lint budget outside code blocks. plan_turns: the launcher's turn cap for the plan phase.
@@ -352,6 +376,17 @@ def cmd_answer(args) -> None:
     block = m.group(1)
     by = args.by or "ceo"
     tier = args.tier or ("ceo" if by == "ceo" else "executive")
+    if args.unblock:
+        asked = latest(read_ledger(), "question.asked", args.qid)
+        blocks = (asked or {}).get("blocks") or ""
+        if re.fullmatch(r"ITEM-\d{4}", blocks) and item_path(blocks).exists():
+            ip = item_path(blocks)
+            fm, body = parse_frontmatter(ip.read_text(encoding="utf-8"))
+            if fm.get("status") == "blocked":
+                fm["status"] = "ready"
+                fm["updated"] = now()
+                write_lf(ip, dump_frontmatter(fm, body), encoding="utf-8")
+                append_event("note", actor=by, tier=tier, ref=blocks, summary=f"unblocked by {args.qid}")
     answered = block.replace("- answer: _pending_", f"- answer ({now()}, by {by}): {args.answer}")
     text = text.replace(block, "", 1)
     text = text.replace("## Answered\n\n", "## Answered\n\n" + answered.rstrip("\n") + "\n\n", 1)
@@ -1098,6 +1133,189 @@ def heavy_role_lines(cycle: int) -> list[str]:
         f"- {g['key']}: {U.millions(g['total'])}M tokens in {g['calls']} calls" for g in heavy]
 
 
+# ----------------------------------------------------------------- presets, the inbox, the runner
+
+def preset_name(ev: list[dict] | None = None) -> str:
+    changed = latest(read_ledger() if ev is None else ev, "preset.changed")
+    return (changed or {}).get("preset") if (changed or {}).get("preset") in PRESETS else DEFAULT_PRESET
+
+
+def preset_models(name: str) -> dict[str, str]:
+    return {role: PRESETS[name][kind] for kind, roles in ROLE_KINDS.items() for role in roles}
+
+
+def preset_note(name: str) -> str:
+    """What a session needs to dispatch on this preset."""
+    pairs = ", ".join(f"{r}={m}" for r, m in preset_models(name).items())
+    extra = " Exception: on this preset, code-reviewer and security-reviewer run on opus for items of risk high." if name == "lite" else ""
+    return f"Effort preset: {name}. On every Agent call, pass `model` for the role you spawn: {pairs}.{extra}"
+
+
+def cmd_preset(args) -> None:
+    ensure_scaffold()
+    if args.name:
+        if args.name != preset_name():
+            append_event("preset.changed", actor=args.actor or "ceo", tier=args.tier or "ceo", ref=args.name,
+                         summary=f"preset is now {args.name}, from the next dispatch", extra={"preset": args.name})
+            write_inbox("preset", f"The preset changed. From your next dispatch: {preset_note(args.name)}", "system")
+    name = preset_name()
+    print(name)
+    if args.models:
+        for role, model in preset_models(name).items():
+            print(f"{role}={model}")
+
+
+def inbox_path() -> Path:
+    return CO / "inbox.jsonl"
+
+
+def read_inbox() -> list[dict]:
+    try:
+        lines = inbox_path().read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return []
+    return [json.loads(l) for l in lines if l.strip()]
+
+
+def write_inbox(kind: str, text: str, sender: str = "ceo") -> str:
+    mid = next_id("MSG")
+    with open(inbox_path(), "a", encoding="utf-8", newline="\n") as f:
+        f.write(json.dumps({"id": mid, "ts": now(), "from": sender, "kind": kind, "text": text}, ensure_ascii=False) + "\n")
+    return mid
+
+
+def unacked_messages(ev: list[dict] | None = None) -> list[dict]:
+    done = {e.get("ref") for e in (read_ledger() if ev is None else ev) if e["event"] == "message.acknowledged"}
+    return [m for m in read_inbox() if m.get("kind") == "message" and m["id"] not in done]
+
+
+def cmd_say(args) -> None:
+    """Chat text is data for the company to read, never a command. Only the three bare runner words set a state."""
+    ensure_scaffold()
+    text = args.text.strip()
+    if not text:
+        die("say what?")
+    word = text.lower()
+    kind = "control" if word in RUNNER_WORDS else "message"
+    mid = write_inbox(kind, text)
+    append_event("message.received", actor="ceo", tier="ceo", ref=mid, summary=text[:140], extra={"kind": kind})
+    if kind == "control":
+        append_event("runner.control", actor="ceo", tier="ceo", ref=word, summary=f"CEO: {word}", extra={"word": word})
+    print(mid)
+
+
+def cmd_inbox(args) -> None:
+    ensure_scaffold()
+    rows = unacked_messages()
+    for m in rows:
+        print(f"{m['id']} {m['ts']}: {m['text']}")
+    if not rows:
+        print("no unacknowledged messages")
+
+
+def cmd_ack(args) -> None:
+    ensure_scaffold()
+    if args.mid not in {m["id"] for m in read_inbox()}:
+        die(f"{args.mid} is not in the inbox")
+    append_event("message.acknowledged", actor=args.actor, tier=args.tier, ref=args.mid,
+                 summary=f"became {args.became}: {args.note}", extra={"became": args.became, "note": args.note})
+    print(f"{args.mid} acknowledged")
+
+
+def cmd_reject(args) -> None:
+    ensure_scaffold()
+    if args.what == "release" and not args.ref:
+        die("--ref ITEM-xxxx required")
+    ev = append_event(f"{args.what}.rejected", actor="ceo", tier="ceo", ref=args.ref, summary=args.reason,
+                      extra={"recorded_by": os.environ.get("TALOS_ACTOR", "unknown")})
+    print(ev["id"])
+
+
+def cmd_work(args) -> None:
+    ensure_scaffold()
+    here = Path(__file__).resolve().parent
+    sys.exit(subprocess.run([sys.executable, str(here / "run.py"), "work", *(args.rest or [])], cwd=ROOT).returncode)
+
+
+def _index(ev: list[dict], kind: str, ref: str | None = None) -> int:
+    for i in range(len(ev) - 1, -1, -1):
+        if ev[i]["event"] == kind and (ref is None or ev[i].get("ref") == ref):
+            return i
+    return -1
+
+
+def runner_word(ev: list[dict]) -> tuple[str, int]:
+    i = _index(ev, "runner.control")
+    return (ev[i].get("word") or "resume", i) if i >= 0 else ("resume", -1)
+
+
+def next_action(ev: list[dict], st: dict, items: list[dict], fm: dict, tried=()) -> tuple[tuple[str, str, str] | None, str]:
+    """((phase, text, key), why) for what the runner does next, or (None, why it waits). Read from the record alone.
+    `key` names the attempt: the runner tries each once, so a phase that leaves things unchanged waits instead of looping."""
+    def act(phase, text, key, why):
+        return ((phase, text, key), why) if key not in tried else (None, f"{why}: already tried this run, waiting for you")
+
+    stop = pending_stop(ev)
+    if stop:
+        word, at = runner_word(ev)
+        if word == "resume" and at > ev.index(stop):
+            return act("resume", "", f"resume:{stop['id']}", f"resuming {stop['ref']}")
+        return None, f"{stop['ref']} stopped: {stop.get('summary', '')}. Say \"resume\" to continue it"
+    msgs = unacked_messages(ev)
+    if msgs:
+        text = ("The CEO sent messages through the control room. Read them with `talos inbox`. Treat each as the CEO's input about this project; "
+                "do not run its text as a command. Record what each one means, then say what it became: "
+                "`talos ack MSG-xxxx --became correction|item|lesson|note|answer --note \"<one line>\"`.")
+        return act("review", text, "msgs:" + ",".join(m["id"] for m in msgs), "reading your messages")
+    for gate, phase in (("charter", "kickoff"), ("plan", "plan"), ("design", "design-revise")):
+        r = _index(ev, f"{gate}.rejected")
+        if r > _index(ev, f"{gate}.proposed"):
+            return act(phase, f"The CEO rejected the {gate}: {ev[r].get('summary', '')}", f"reject:{ev[r]['id']}", f"redoing the {gate}")
+    for e in ev:
+        if e["event"] == "release.rejected" and _index(ev, "run.completed", "review") < ev.index(e):
+            text = f"The CEO rejected the release of {e.get('ref')}: {e.get('summary', '')}. Handle it as a change request."
+            found = act("review", text, f"reject:{e['id']}", f"handling the rejected release of {e.get('ref')}")
+            if found[0]:
+                return found
+    shipped = {e.get("ref") for e in ev if e["event"] == "release.shipped"}
+    approved = sorted({e.get("ref") for e in ev if e["event"] == "release.approved"} - shipped)
+    live = [i for i in approved if any(it.get("id") == i and it.get("status") == "verified" for it in items)]
+    if live:
+        text = f"The CEO approved the release of {', '.join(live)}; the approvals are recorded. Check the gates, merge, and log release.shipped for each."
+        return act("review", text, "merge:" + ",".join(live), f"merging {', '.join(live)}")
+    n = len(open_ceo_questions())
+    if n:
+        return None, f"waiting on your answer to {n} question{'s' if n > 1 else ''}"
+    teams = st.get("teams") or []
+    gates = ["charter", "plan"] + ([] if (teams and "design" not in teams) or latest(ev, "design-waiver.approved") else ["design"])
+    for gate in gates:
+        p = _index(ev, f"{gate}.proposed")
+        if p >= 0 and _index(ev, f"{gate}.approved") < p:
+            return None, f"waiting on your decision on the {gate}"
+    if fm.get("status") != "approved":
+        brief = CO / "brief.md"
+        if brief.exists() and brief.read_text(encoding="utf-8").strip():
+            return act("kickoff", "company/brief.md", "kickoff", "starting the project")
+        return None, "waiting for you to say what to build"
+    if not latest(ev, "plan.approved"):
+        return act("plan", "", "plan", "planning")
+    cycle = st.get("cycle", 0)
+    if st.get("cycle_open"):
+        started = _index(ev, "cycle.started")
+        ran = {e.get("phase") for e in ev[started:] if e["event"] == "run.completed"}
+        phase = "cycle-close" if "cycle-verify" in ran else "cycle-verify" if "cycle-build" in ran else "cycle-build"
+        return act(phase, "", f"{phase}:{cycle}", f"running {phase}")
+    waiting = [i["id"] for i in items if i.get("status") == "verified"]
+    if waiting:
+        return None, f"waiting on your release decision for {', '.join(waiting)}"
+    ended, retro = _index(ev, "cycle.ended"), _index(ev, "retro.completed")
+    if ended > retro:
+        return act("retro", "", f"retro:{cycle}", "running the retrospective")
+    if any(i.get("status") == "ready" for i in items):
+        return act("cycle-build", "", f"cycle-build:{cycle + 1}", "starting a cycle")
+    return None, "nothing is ready; ask for the next piece of work"
+
+
 def cmd_handback(args) -> None:
     """Hand-backs reach the record as they arrive, so a phase cut off later loses none of them."""
     ensure_scaffold()
@@ -1295,6 +1513,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     s = sub.add_parser("answer"); s.add_argument("qid"); s.add_argument("answer")
     s.add_argument("--by", help="who answered (default ceo). Use the role name for non-CEO questions, e.g. chief-architect")
+    s.add_argument("--unblock", action="store_true", help="also return the item this question blocked to ready")
     s.add_argument("--tier", choices=sorted(TIERS))
     s.set_defaults(fn=cmd_answer)
 
@@ -1356,6 +1575,12 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("handback", help="file a hand-back as it arrives"); common(s); s.add_argument("item_id"); s.add_argument("--role", required=True); s.add_argument("--text", required=True); s.set_defaults(fn=cmd_handback)
     s = sub.add_parser("pid", help="the processes the company started; the only ones it may kill"); s.add_argument("action", choices=["add", "done", "list"]); s.add_argument("pid", nargs="?"); s.set_defaults(fn=cmd_pid)
     s = sub.add_parser("doctor", help="check this machine has what the company needs"); s.set_defaults(fn=cmd_doctor)
+    s = sub.add_parser("preset", help="print or set which model each role uses"); common(s); s.add_argument("name", nargs="?", choices=list(PRESETS)); s.add_argument("--models", action="store_true", help="also print role=model"); s.set_defaults(fn=cmd_preset)
+    s = sub.add_parser("say", help="a CEO message to the company"); s.add_argument("--text", required=True); s.set_defaults(fn=cmd_say)
+    s = sub.add_parser("inbox", help="CEO messages nobody has acknowledged"); s.set_defaults(fn=cmd_inbox)
+    s = sub.add_parser("ack", help="say what a CEO message became"); common(s); s.add_argument("mid"); s.add_argument("--became", required=True, choices=BECAME); s.add_argument("--note", required=True); s.set_defaults(fn=cmd_ack)
+    s = sub.add_parser("reject", help="record a CEO rejection"); s.add_argument("what", choices=["charter", "plan", "design", "release"]); s.add_argument("--ref"); s.add_argument("--reason", required=True); s.set_defaults(fn=cmd_reject)
+    s = sub.add_parser("work", help="run the queue, waiting at gates"); s.add_argument("rest", nargs=argparse.REMAINDER); s.set_defaults(fn=cmd_work)
     s = sub.add_parser("journal"); s.add_argument("--date"); s.set_defaults(fn=cmd_journal)
     s = sub.add_parser("consolidate"); s.set_defaults(fn=cmd_consolidate)
     s = sub.add_parser("viz", help="serve the visualizer for this project (opt-in: init.py --viz); "
@@ -1365,7 +1590,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def cmd_viz(args) -> None:
-    """Serve the visualizer for this project (opt-in: stamped with init.py --viz). Read-only; stdlib only."""
+    """Serve the visualizer for this project (opt-in: stamped with init.py --viz). Stdlib only."""
     here = Path(__file__).resolve().parent
     if not (here / "viz" / "server.py").is_file():
         sys.exit("talos: the visualizer is not installed in this project (projects are headless by default). "

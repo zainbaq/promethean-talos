@@ -55,13 +55,13 @@ tools/talos/talos viz                                  # http://127.0.0.1:8000/
 tools/talos/talos viz --host 0.0.0.0 --allow-host my-pc # reachable from your phone, e.g. over Tailscale
 ```
 
-It is a read-only page over the project record, standard library only. The growth rings show one ring per cycle, an arc per phase run sized by its cost and a tick per ledger event; hover or tap any mark for what happened, who did it and what the run cost. Timeline lists every event, filterable, and Work shows the backlog by status. It updates live while a phase runs, and the project name in the header switches to any other Talos project next to this one (`--scan DIR` to look elsewhere, `--no-scan` for just this one).
+It is a page over the project record, standard library only, and it is also where you steer: approve or reject gates, answer questions, send the company a message and set the preset, from the link it prints at start (`--read-only` turns that off). Your decisions wait in the record until `tools/talos/talos work` is running.  The growth rings show one ring per cycle, an arc per phase run sized by its cost and a tick per ledger event; hover or tap any mark for what happened, who did it and what the run cost. Timeline lists every event, filterable, and Work shows the backlog by status. It updates live while a phase runs, and the project name in the header switches to any other Talos project next to this one (`--scan DIR` to look elsewhere, `--no-scan` for just this one).
 
 ## The cast
 
 | Tier | Model | Roles |
 |---|---|---|
-| Executive | Fable | Chief of Staff · Head of Product · Chief Architect · Head of Research · Head of QA · Learning Officer · Head of Design |
+| Executive | Opus on the default medium preset; Fable only on heavy; Sonnet on lite | Chief of Staff · Head of Product · Chief Architect · Head of Research · Head of QA · Learning Officer · Head of Design |
 | Review | Opus | Code Reviewer · Security Reviewer |
 | Execution | Sonnet | Engineer (parallel) · UI Engineer · Test Engineer · Design QA · Research Analyst · UX Designer · DevOps Engineer · Technical Writer |
 | Mechanical | Haiku | Librarian |

@@ -1,6 +1,7 @@
 // app.js: the shell (ADR-0005 point 1): header, nav, view container, snapshot store with diffs, SSE client, URL contract.
 // Every DOM node is built through dom.js. Views never touch the network.
 import { h, svg, text } from "./dom.js";
+import { createControl } from "./control.js";
 import * as motion from "./motion.js";
 import { glyphDefs } from "./rings.js";
 import * as canopyView from "./views/canopy.js";
@@ -109,6 +110,7 @@ const ctx = {
 };
 
 const VIEWS = [nowView, timelineView, workView, canopyView];
+const control = createControl({ query: projectQuery });
 const views = new Map(VIEWS.map((mod) => [mod.id, { id: mod.id, mod, section: null, mounted: false, prev: null, scroll: 0 }]));
 const refs = {};
 let current = "now";
@@ -319,7 +321,7 @@ function buildChrome(snapshot) {
   refs.railBtn = h("button", { type: "button", class: "rail__toggle", "aria-controls": "rail" }, icon("rail"), h("span", { class: "nav__label" }, "Collapse"));
   refs.railBtn.addEventListener("click", () => setRail(refs.app.dataset.rail !== "open"));
   const rail = h("aside", { class: "rail", id: "rail" }, nav, refs.railBtn);
-  const main = h("main", { id: "main", class: "main", tabindex: "-1" });
+  const main = h("main", { id: "main", class: "main", tabindex: "-1" }, control.dock);
   for (const v of views.values()) {
     v.section = h("section", { "data-view": v.id, hidden: v.id !== current });
     main.append(v.section);
@@ -328,8 +330,8 @@ function buildChrome(snapshot) {
   const project = buildSwitcher();
   refs.app = h("div", { class: `app app--${current}` },
     h("a", { class: "skip", href: "#main" }, "Skip to content"),
-    h("header", { class: "top" }, brand, h("span", { class: "top__rule", "aria-hidden": "true" }), project, refs.fresh),
-    rail, main);
+    h("header", { class: "top" }, brand, h("span", { class: "top__rule", "aria-hidden": "true" }), project, control.preset, refs.fresh),
+    rail, main, control.chat);
   setRail(readRail());
   return refs.app;
 }
@@ -353,6 +355,7 @@ function ingest(next) {
   noteRead(next.activity && next.activity.checked_at);
   if (first) return;
   renderChrome(next);
+  control.update(next);
   for (const v of views.values()) if (v.mounted) updateView(v, next);
 }
 
@@ -504,6 +507,7 @@ async function boot() {
   noteRead(first.activity && first.activity.checked_at);
   const app = buildChrome(first);
   renderChrome(first);
+  control.update(first);
   setCurrentChrome(current);
   ensureMounted(views.get(current));
   document.body.append(glyphDefs(), app);

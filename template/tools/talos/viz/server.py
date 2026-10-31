@@ -1,19 +1,23 @@
-"""HTTP server (ADR-0001, ADR-0002): static shell, /api/snapshot, /api/events (SSE). Read-only, stdlib only."""
+"""HTTP server (ADR-0001, ADR-0002): static shell, /api/snapshot, /api/events (SSE), and the control room's few
+POST endpoints (docs/adr-control-room.md; none with --read-only). Stdlib only."""
 from __future__ import annotations
 
 import argparse
 import gzip
+import hmac
 import ipaddress
 import json
 import mimetypes
 import queue
+import secrets
 import socket
 import sys
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, unquote, urlsplit
+from urllib.parse import parse_qs, quote, unquote, urlsplit
 
+from . import control as C
 from . import hierarchy as H
 from . import record as R
 from .projects import Projects
@@ -33,6 +37,9 @@ _TYPES = {
 PING_SECONDS = 15.0
 
 MISDIRECTED = b'{"error":"misdirected"}'
+
+MAX_POST = 16 * 1024
+COOKIE = "talos_k"
 
 
 def allowed_hosts(host: str, allow_hosts) -> frozenset[str]:
@@ -80,7 +87,7 @@ class _StaticSource:
         pass
 
 
-def _make_handler(projects: Projects, static_dir: Path, allowed: frozenset[str]):
+def _make_handler(projects: Projects, static_dir: Path, allowed: frozenset[str], secret: str | None = None):
     static_root = static_dir.resolve()
 
     class Handler(BaseHTTPRequestHandler):
@@ -131,6 +138,38 @@ def _make_handler(projects: Projects, static_dir: Path, allowed: frozenset[str])
                 return self._not_found(head)
             ctype = _TYPES.get(target.suffix.lower()) or mimetypes.guess_type(target.name)[0] or "application/octet-stream"
             self._send(200, ctype, body, {"Cache-Control": "no-cache"}, head)
+
+        def _authed(self) -> bool:
+            if not secret:
+                return False
+            for part in (self.headers.get("Cookie") or "").split(";"):
+                name, _, value = part.strip().partition("=")
+                if name == COOKIE and hmac.compare_digest(value.encode(), secret.encode()):
+                    return True
+            return False
+
+        def _same_origin(self) -> bool:
+            """A browser sends Origin on every POST; a page on another site cannot forge it."""
+            origin = self.headers.get("Origin")
+            if not origin:
+                return False
+            return urlsplit(origin).netloc.lower() == (self.headers.get("Host") or "").strip().lower()
+
+        def _claim_link(self, head: bool) -> bool:
+            """?k=<secret> sets the cookie and drops the secret from the address bar. True when it answered."""
+            parts = urlsplit(self.path)
+            query = parse_qs(parts.query, keep_blank_values=True)
+            if "k" not in query:
+                return False
+            rest = "&".join(f"{quote(k)}={quote(v)}" for k, vals in query.items() if k != "k" for v in vals)
+            extra = {"Location": parts.path + (f"?{rest}" if rest else ""), "Cache-Control": "no-store", "Referrer-Policy": "no-referrer"}
+            if secret and hmac.compare_digest(query["k"][0].encode(), secret.encode()):
+                extra["Set-Cookie"] = f"{COOKIE}={secret}; HttpOnly; SameSite=Strict; Path=/"
+            self._send(303, "text/plain; charset=utf-8", b"", extra, head)
+            return True
+
+        def _session(self, head: bool) -> None:
+            self._json({"writable": bool(secret), "authed": self._authed()}, head)
 
         def _source(self):
             """The project named by ?p=<id> (the --root record when absent); None after a 404 was sent."""
@@ -213,6 +252,10 @@ def _make_handler(projects: Projects, static_dir: Path, allowed: frozenset[str])
 
         def _route(self, head: bool) -> None:
             path = urlsplit(self.path).path
+            if path in ("/", "/index.html") and self._claim_link(head):
+                return
+            if path == "/api/session":
+                return self._session(head)
             if path in ("/", "/index.html"):
                 index = static_root / "index.html"
                 if index.is_file():
@@ -241,6 +284,42 @@ def _make_handler(projects: Projects, static_dir: Path, allowed: frozenset[str])
                 return self._misdirected()
             self._route(True)
 
+        def _refuse(self, status: int, why: str) -> None:
+            self.close_connection = True  # the body may be unread
+            self._send(status, "application/json; charset=utf-8", json.dumps({"error": why}).encode("utf-8"), {"Connection": "close"})
+
+        def do_POST(self):
+            path = urlsplit(self.path).path
+            if not secret or not path.startswith("/api/control/"):
+                return self._no()
+            if not self._host_ok():
+                return self._misdirected()
+            if not self._same_origin() or not self._authed():
+                return self._refuse(403, "not allowed")
+            if self.headers.get_content_type() != "application/json":
+                return self._refuse(415, "send JSON")
+            try:
+                size = int(self.headers.get("Content-Length") or "")
+            except ValueError:
+                return self._refuse(411, "length required")
+            if not 0 <= size <= MAX_POST:
+                return self._refuse(413, "too large")
+            source = self._source()
+            if source is None:
+                return
+            if not isinstance(source, Watcher):
+                return self._refuse(409, "this server has no record to write to")
+            try:
+                data = json.loads(self.rfile.read(size))
+                if not isinstance(data, dict):
+                    raise ValueError
+                ok, said = C.run(source.project_root, path[len("/api/control/"):], data)
+            except (ValueError, C.Invalid) as exc:
+                return self._refuse(400, str(exc) or "bad request")
+            if not ok:
+                return self._refuse(409, said or "refused")
+            self._send(200, "application/json; charset=utf-8", json.dumps({"ok": True, "said": said}).encode("utf-8"))
+
         def _no(self):
             if not self._host_ok():
                 return self._misdirected()
@@ -260,14 +339,21 @@ class _Server(ThreadingHTTPServer):
 
 
 def serve(project_root: Path, record: Path, host: str, port: int, *, snapshot_file=None,
-          transcripts=None, talos_dir=None, allow_hosts=(), scan_dirs=()) -> None:
+          transcripts=None, talos_dir=None, allow_hosts=(), scan_dirs=(), read_only=False) -> None:
     if snapshot_file is not None:
         projects = Projects(project_root, record, primary_source=_StaticSource(json.loads(Path(snapshot_file).read_text(encoding="utf-8"))))
     else:
         projects = Projects(project_root, record, scan_dirs, transcripts=transcripts, talos_dir=talos_dir)
         projects.source(None)
-    httpd = _Server((host, port), _make_handler(projects, STATIC_DIR, allowed_hosts(host, allow_hosts)))
-    print(f"viz: listening on http://{host}:{httpd.server_address[1]}/", flush=True)
+    secret = None if read_only or snapshot_file is not None else secrets.token_urlsafe(24)
+    httpd = _Server((host, port), _make_handler(projects, STATIC_DIR, allowed_hosts(host, allow_hosts), secret))
+    bound = httpd.server_address[1]
+    print(f"viz: listening on http://{host}:{bound}/", flush=True)
+    if secret:
+        names = [n for n in ([host] if host not in ("0.0.0.0", "::") else ["127.0.0.1", *allow_hosts])]
+        print("viz: to approve, chat and set the preset, open:", flush=True)
+        for name in names:
+            print(f"viz:   http://{name}:{bound}/?k={secret}", flush=True)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
@@ -288,7 +374,7 @@ def resolve_record(root: Path) -> tuple[Path, Path] | None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    p = argparse.ArgumentParser(prog="python -m viz", description="Serve a Talos record (read-only).")
+    p = argparse.ArgumentParser(prog="python -m viz", description="Serve a Talos record, with the control room unless --read-only.")
     p.add_argument("--root", default=".", help="directory holding company/ (or a record directory itself)")
     p.add_argument("--host", default="127.0.0.1", help="bind address (default 127.0.0.1; 0.0.0.0 is opt-in)")
     p.add_argument("--port", type=int, default=8000, help="port (0 picks an ephemeral port)")
@@ -301,6 +387,7 @@ def main(argv: list[str] | None = None) -> int:
                    help="offer every Talos project one level under DIR in the switcher (repeatable; default: the "
                         "folder holding --root; --no-scan for none)")
     p.add_argument("--no-scan", action="store_true", help="offer only the --root project")
+    p.add_argument("--read-only", action="store_true", help="no control room: the page only shows the record")
     args = p.parse_args(argv)
 
     if args.snapshot:
@@ -321,7 +408,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         scan = [] if args.no_scan or args.snapshot else (args.scan if args.scan is not None else [project_root.parent])
         serve(project_root, record, args.host, args.port, snapshot_file=args.snapshot,
-              transcripts=args.transcripts, talos_dir=args.talos_dir, allow_hosts=args.allow_host, scan_dirs=scan)
+              transcripts=args.transcripts, talos_dir=args.talos_dir, allow_hosts=args.allow_host, scan_dirs=scan, read_only=args.read_only)
     except OSError as exc:
         print(f"viz: cannot listen on {args.host}:{args.port}: {exc}", file=sys.stderr)
         return 2

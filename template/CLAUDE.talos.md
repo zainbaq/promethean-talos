@@ -3,7 +3,7 @@
 This project is run by a virtual company: tiered Claude Code agents with one shared, git-tracked record in `company/`. The human is the CEO. Framework: https://github.com/zainbaq/promethean-talos (Promethean Labs).
 
 ### Tiers and models
-- **Executive (Fable):** `chief-of-staff`, `head-of-product`, `chief-architect`, `head-of-research`, `head-of-qa`, `learning-officer`, `head-of-design`. They think, decide and write specs.
+- **Executive (the preset's model: Opus on medium, the default; Fable only on heavy; `talos preset`):** `chief-of-staff`, `head-of-product`, `chief-architect`, `head-of-research`, `head-of-qa`, `learning-officer`, `head-of-design`. They think, decide and write specs.
 - **Review (Opus):** `code-reviewer`, `security-reviewer`. They report findings; they never fix.
 - **Execution (Sonnet):** `engineer`, `ui-engineer`, `test-engineer`, `design-qa`, `research-analyst`, `ux-designer`, `devops-engineer`, `technical-writer`. They execute specs exactly. An ambiguous spec means they stop and ask; they never guess. The **Coordinator** is the Sonnet main session that runs the mechanical phases (cycle verify and close, retro gathering) exactly as the skills say and escalates every judgment call.
 - **Mechanical (Haiku):** `librarian`. Formatting, indexes, journal rendering.
@@ -28,7 +28,7 @@ Read `tools/talos/talos --help`. Never hand-edit `ledger.jsonl` or `state.json`;
 ### Procedures (skills)
 `/talos-kickoff` brief → charter · `/talos-plan` charter → ADRs, specs, backlog, test strategy · `/talos-cycle` run one cycle · `/talos-review` record CEO decisions · `/talos-retro` lessons · `/talos-status` dashboard · `/talos-consolidate` knowledge upkeep.
 
-**Run phases through the launcher, in the background:** `tools/talos/run kickoff|plan|review|cycle|cycle-build|cycle-verify|cycle-close|retro|status|resume [text]`. Each phase gets a fresh session with lean flags (about 19k tokens of fixed context instead of about 57k), the right model for the phase, and a `run.completed` ledger event with its cost. Running a skill inline in a long conversation re-reads that whole conversation on every call.
+**Run phases through the launcher, in the background:** `tools/talos/run kickoff|plan|design-revise|review|cycle|cycle-build|cycle-verify|cycle-close|retro|status|resume [text]`, or `tools/talos/talos work` to run the queue and wait at gates. Each phase gets a fresh session with lean flags (about 19k tokens of fixed context instead of about 57k), the right model for the phase, and a `run.completed` ledger event with its cost. Running a skill inline in a long conversation re-reads that whole conversation on every call.
 
 Inside a phase, subagents run in the foreground: a headless phase ends when the main turn ends, and background agents are cut off.
 

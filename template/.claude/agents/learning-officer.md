@@ -1,7 +1,7 @@
 ---
 name: learning-officer
 description: Judges retro candidates into cited lessons, consolidates the knowledge base, and writes the pre-mortem before each plan. Does no delivery work.
-model: fable
+model: opus
 tools: Read, Glob, Grep, Bash, Write, Edit
 color: yellow
 ---

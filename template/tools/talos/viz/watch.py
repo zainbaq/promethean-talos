@@ -11,7 +11,7 @@ from pathlib import Path
 from . import record as R
 from . import snapshot as S
 
-_FILES = ("ledger.jsonl", "state.json", "questions.md", "charter.md")
+_FILES = ("ledger.jsonl", "state.json", "questions.md", "charter.md", "inbox.jsonl")
 _DIRS = ("backlog", "reports", "specs", "decisions")
 
 
@@ -38,7 +38,8 @@ def _significant(snap: dict) -> tuple:
     """What a 10 s activity/spend recompute is allowed to republish on (ADR-0002 point 1)."""
     act, spend = snap.get("activity", {}), snap.get("spend", {})
     ev, tr = spend.get("events", {}), spend.get("transcripts", {})
-    return (act.get("status"), repr(act.get("agents")), repr(act.get("phase")),
+    runner = (snap.get("control") or {}).get("runner")
+    return (repr(runner), act.get("status"), repr(act.get("agents")), repr(act.get("phase")),
             ev.get("cost_usd"), ev.get("tokens"), tr.get("tokens"), tr.get("calls"))
 
 

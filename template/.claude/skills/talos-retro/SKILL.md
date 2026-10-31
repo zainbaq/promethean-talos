@@ -23,7 +23,7 @@ You are the Coordinator running the RETRO (normally via `tools/talos/run retro`,
 
 3. **Draft the retro.** Write `company/retros/cycle-NNN.md`: what we expected, what happened, what surprised us, what changes; and a **Spend** section with the cycle's measured tokens by model, the top three roles, tokens per verified item, the most expensive role and one concrete change that would cut it.
 
-4. **Judgment on Fable.** Spawn `learning-officer` with only the two file paths and `company/knowledge/INDEX.md`. It accepts, merges, sharpens or rejects each candidate; records accepted ones with `talos lesson add` (one fact per lesson, evidence required); amends the retro if a candidate changes its conclusion; and runs `talos consolidate`.
+4. **Judgment on the executive model.** Spawn `learning-officer` with only the two file paths and `company/knowledge/INDEX.md`. It accepts, merges, sharpens or rejects each candidate; records accepted ones with `talos lesson add` (one fact per lesson, evidence required); amends the retro if a candidate changes its conclusion; and runs `talos consolidate`.
 
 5. **Index.** Spawn `librarian` to render the journal and check frontmatter and links.
 

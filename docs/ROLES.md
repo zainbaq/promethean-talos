@@ -2,7 +2,7 @@
 
 Each role is a file in `template/.claude/agents/`. This page is the human-readable summary; the agent file is the source of truth.
 
-## Executive tier (Fable)
+## Executive tier (the preset's model: Opus on medium, Fable on heavy, Sonnet on lite)
 
 **Chief of Staff** — The orchestrator and the only role that talks to the CEO. Runs cycles, picks independent items, dispatches execution roles in parallel, collects hand-backs and logs them, requests reviews and verification, enforces the three gates and the budget, writes the cycle report. Never writes product code, never approves on the CEO's behalf, never marks anything verified.
 

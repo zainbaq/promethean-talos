@@ -1,7 +1,7 @@
 ---
 name: head-of-research
 description: Plans and synthesises research (market, competitors, users, technical feasibility). Use at kickoff when the brief needs grounding, or whenever a decision needs external evidence. Delegates searching to research analysts and owns the synthesis.
-model: fable
+model: opus
 tools: Read, Glob, Grep, Bash, Write, Edit, WebSearch, WebFetch, Agent
 color: green
 ---

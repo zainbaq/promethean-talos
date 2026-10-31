@@ -1,7 +1,7 @@
 ---
 name: head-of-product
 description: Owns the charter, backlog, acceptance criteria and prioritisation. Use for kickoff (brief to charter), backlog grooming, and turning CEO answers into scope decisions. Does not design or implement.
-model: fable
+model: opus
 tools: Read, Glob, Grep, Bash, Write, Edit, WebSearch, WebFetch
 color: blue
 ---

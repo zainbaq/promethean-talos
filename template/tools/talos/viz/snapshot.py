@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -165,4 +166,9 @@ def build(project_root: Path, record: Path, *, now: datetime, version: int, chec
         "project": project, "charter": charter, "cycle": cycle, "counts": counts,
         "waiting": waiting, "events": events, "event_types": event_types, "actors": actors,
         "items": items, "report": report, "activity": activity, "spend": spend, "errors": errors,
+        "control": soft("control", lambda: {
+            **R.preset_block(ledger),
+            "messages": R.read_inbox(record / "inbox.jsonl", ledger),
+            "runner": R.read_runner(project_root / ".talos" / "runner.json", time.time()),
+        }, None),
     }

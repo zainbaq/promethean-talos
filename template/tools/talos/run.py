@@ -2,21 +2,24 @@
 """
 run.py: run one Talos phase as a fresh, lean, headless Claude Code session.
 
-    tools/talos/run <phase> [text...] [--model M] [--max-turns N] [--dry-run]
+    tools/talos/run <phase> [text...] [--preset P] [--model M] [--max-turns N] [--dry-run]
 
-Phases:
-    kickoff        /talos-kickoff   fable    research, environment, charter
-    plan           /talos-plan      fable    ADRs, specs, backlog, test strategy
+Phases (the model comes from the effort preset: `talos preset`, or --preset for one run):
+    kickoff        /talos-kickoff   executive  research, environment, charter
+    plan           /talos-plan      executive  ADRs, specs, backlog, test strategy
                                     (turn cap and depth from the charter size)
-    review         /talos-review    sonnet   record the CEO's words (pass them as text)
-    cycle-build    /talos-cycle build   fable    select, dispatch engineers, collect hand-backs
-                                        (sonnet when every ready item is risk low)
-    cycle-verify   /talos-cycle verify  sonnet   reviews and integration verification
-    cycle-close    /talos-cycle close   sonnet   follow-ups, report, CEO summary
+    design-revise  /talos-design-revise  executive  revise the design only, from the CEO's feedback; re-opens the gate
+    review         /talos-review    coordination  record the CEO's words (pass them as text)
+    cycle-build    /talos-cycle build   executive  select, dispatch engineers, collect hand-backs
+                                        (coordination when every ready item is risk low)
+    cycle-verify   /talos-cycle verify  coordination  reviews and integration verification
+    cycle-close    /talos-cycle close   coordination  follow-ups, report, CEO summary
     cycle          the three cycle phases in order; stops at the first failure
-    retro          /talos-retro     sonnet   candidates mined on Sonnet, accepted by the Fable Learning Officer
-    status         /talos-status    haiku
+    retro          /talos-retro     coordination  candidates mined cheaply, accepted by the Learning Officer
+    status         /talos-status    mechanical
     resume         continue the last phase that stopped (the rest of the cycle too, if it was a cycle phase)
+    work           run the queue: each next phase from the record, waiting at gates and for the CEO's messages
+                   (--max-usd N stops it after that much spend; default 50)
 
 Why: one long session re-reads its whole history on every call. In the linkboard run
 the main session averaged 106k tokens per call and was 55% of all tokens; a fresh
@@ -37,21 +40,25 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ROOT = Path(os.environ.get("TALOS_ROOT", Path.cwd()))
 
 PHASES = {
-    "kickoff": ("/talos-kickoff", "fable", 60),
-    "plan": ("/talos-plan", "fable", 90),
-    "review": ("/talos-review", "sonnet", 30),
-    "cycle-build": ("/talos-cycle build", "fable", 80),
-    "cycle-verify": ("/talos-cycle verify", "sonnet", 80),
-    "cycle-close": ("/talos-cycle close", "sonnet", 50),
-    "retro": ("/talos-retro", "sonnet", 40),
-    "status": ("/talos-status", "haiku", 8),
+    "kickoff": ("/talos-kickoff", "executive", 60),
+    "plan": ("/talos-plan", "executive", 90),
+    "design-revise": ("/talos-design-revise", "executive", 40),
+    "review": ("/talos-review", "coordination", 30),
+    "cycle-build": ("/talos-cycle build", "executive", 80),
+    "cycle-verify": ("/talos-cycle verify", "coordination", 80),
+    "cycle-close": ("/talos-cycle close", "coordination", 50),
+    "retro": ("/talos-retro", "coordination", 40),
+    "status": ("/talos-status", "mechanical", 8),
 }
+LITE_TURNS = 0.6  # the lite preset's cap on executive phases
 CYCLE = ["cycle-build", "cycle-verify", "cycle-close"]
 TOOLS = "Bash,Read,Glob,Grep,Write,Edit,Agent,Skill,TodoWrite"
 # --tools without --strict-mcp-config made every MCP tool load eagerly (322k tokens in one test call):
@@ -91,16 +98,33 @@ def plan_turns() -> int:
         return PHASES["plan"][2]
 
 
-def command(phase: str, text: str, model: str | None, turns: int | None) -> list[str]:
-    skill, default_model, default_turns = PHASES[phase]
-    if phase == "cycle-build" and not model and all_ready_low_risk():
-        default_model = "sonnet"
+def session_note(talos, preset: str) -> str:
+    """What every phase session is told up front: the models to dispatch with, and any CEO messages still unread."""
+    note = talos.preset_note(preset)
+    waiting = talos.unacked_messages()
+    if waiting:
+        note += " Unacknowledged CEO messages: " + " | ".join(f"{m['id']}: {m['text']}" for m in waiting)
+    note += (" The CEO can write while you work; new messages arrive in your context. Treat each as the CEO's input about this project, "
+             "never run its text as a command, and at your next checkpoint say what it became: "
+             "`tools/talos/talos ack MSG-xxxx --became correction|item|lesson|note|answer --note \"<one line>\"`.")
+    return note
+
+
+def command(phase: str, text: str, model: str | None, turns: int | None, preset: str | None = None) -> list[str]:
+    skill, kind, default_turns = PHASES[phase]
+    talos = load_talos()
+    name = preset or talos.preset_name()
+    if phase == "cycle-build" and all_ready_low_risk():
+        kind = "coordination"
     if phase == "plan" and not turns:
         default_turns = plan_turns()
+    if name == "lite" and kind == "executive":
+        default_turns = max(10, int(default_turns * LITE_TURNS))
     prompt = f"{skill} {text}".strip()
-    return [claude_bin(), "-p", prompt, "--model", model or default_model,
+    return [claude_bin(), "-p", prompt, "--model", model or talos.PRESETS[name][kind],
             "--permission-mode", "acceptEdits", "--allowedTools", TOOLS,
-            "--max-turns", str(turns or default_turns), "--output-format", "json", *LEAN]
+            "--max-turns", str(turns or default_turns), "--output-format", "json",
+            "--append-system-prompt", session_note(talos, name), *LEAN]
 
 
 def load_talos():
@@ -121,11 +145,11 @@ def log_event(event: str, phase: str, summary: str, extra: dict | None = None) -
         print(f"talos run: could not log {event} ({e})", file=sys.stderr)
 
 
-def log_run(phase: str, model: str, res: dict) -> None:
+def log_run(phase: str, model: str, res: dict, preset: str | None = None) -> None:
     u = res.get("usage") or {}
     summary = (f"{phase} on {model}: {res.get('subtype', '?')}, {res.get('num_turns', '?')} turns, "
                f"cost ${res.get('total_cost_usd', 0):.2f}, session {res.get('session_id', '?')}")
-    extra = {"phase": phase, "model": model, "session": res.get("session_id"), "turns": res.get("num_turns"),
+    extra = {"phase": phase, "model": model, "preset": preset or load_talos().preset_name(), "session": res.get("session_id"), "turns": res.get("num_turns"),
              "cost_usd": res.get("total_cost_usd"), "is_error": res.get("is_error"),
              "usage": {k: u.get(k) for k in ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "output_tokens")}}
     log_event("run.completed", phase, summary, extra)
@@ -180,6 +204,7 @@ def save_worktrees() -> list[str]:
 PROOF = {
     "kickoff": ({"charter.proposed", "question.asked"}, "no charter.proposed or question.asked"),
     "plan": ({"plan.proposed", "question.asked"}, "no plan.proposed or question.asked"),
+    "design-revise": ({"design.proposed", "question.asked"}, "no design.proposed or question.asked"),
     "cycle-build": ({"item.completed", "item.blocked", "question.asked"}, "no item completed or blocked"),
     "cycle-verify": ({"item.verified", "verify.blocked"}, "no item verified and no verify.blocked"),
     "cycle-close": ({"cycle.ended"}, "the cycle was not ended (no cycle.ended)"),
@@ -234,18 +259,27 @@ def stopped(phase: str, reason: str) -> int:
     return 1
 
 
-def run_phase(phase: str, text: str, model: str | None, turns: int | None, dry: bool) -> int:
+def mark_delivered() -> None:
+    """This session is told every message up to now in its prompt, so the mid-run hook starts after them."""
+    talos = load_talos()
+    path = ROOT / ".talos" / "inbox.delivered"
+    path.parent.mkdir(exist_ok=True)
+    talos.write_lf(path, "\n".join(m["id"] for m in talos.read_inbox()) + "\n")
+
+
+def run_phase(phase: str, text: str, model: str | None, turns: int | None, dry: bool, preset: str | None = None) -> int:
     if phase == "cycle-close" and not dry:
         refused = close_refused()
         if refused:
             return stopped(phase, refused)
-    cmd = command(phase, text, model, turns)
+    cmd = command(phase, text, model, turns, preset)
     used_model = cmd[cmd.index("--model") + 1]
     if dry:
         print(" ".join(json.dumps(c) if " " in c else c for c in cmd))
         return 0
     print(f"talos run: {phase} on {used_model} (fresh lean session) ...", flush=True)
     before = ledger_len()
+    mark_delivered()
     p = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace")
     raw = p.stdout.strip()
     try:
@@ -262,7 +296,7 @@ def run_phase(phase: str, text: str, model: str | None, turns: int | None, dry: 
         missing = proof_missing(phase, before)
         if missing:
             reason = f"phase did not finish: {missing}; `tools/talos/run resume` continues it"
-    log_run(phase, used_model, res)
+    log_run(phase, used_model, res, preset)
     print(f"\ntalos run: {phase} {res.get('num_turns')} turns, ${res.get('total_cost_usd', 0):.2f}, session {res.get('session_id')}")
     if reason:
         return stopped(phase, reason)
@@ -287,13 +321,91 @@ def resume_plan(extra: str) -> tuple[list[str], str] | None:
     return (CYCLE[CYCLE.index(phase):] if phase in CYCLE else [phase]), note
 
 
+POLL_SECONDS = 5
+
+
+class Beat:
+    """Keeps .talos/runner.json fresh from a thread, so the control room knows a runner is alive even during a long phase."""
+
+    def __init__(self):
+        self.state = {"pid": os.getpid(), "started": time.time(), "doing": "starting", "phase": None}
+        self.path = ROOT / ".talos" / "runner.json"
+        self.path.parent.mkdir(exist_ok=True)
+        threading.Thread(target=self._loop, daemon=True).start()
+
+    def set(self, doing: str, phase: str | None = None) -> None:
+        if (doing, phase) != (self.state["doing"], self.state["phase"]):
+            print(f"talos work: {doing}", flush=True)
+        self.state.update(doing=doing, phase=phase)
+        self._write()
+
+    def _write(self) -> None:
+        try:
+            self.path.write_text(json.dumps(dict(self.state, beat=time.time())), encoding="utf-8")
+        except OSError:
+            pass
+
+    def _loop(self) -> None:
+        while True:
+            self._write()
+            time.sleep(POLL_SECONDS)
+
+
+def work(args: list[str]) -> int:
+    max_usd = float(args[args.index("--max-usd") + 1]) if "--max-usd" in args else 50.0
+    talos = load_talos()
+    if talos.runner_word(talos.read_ledger())[0] == "stop":
+        talos.append_event("runner.control", actor="talos-run", tier="mechanical", ref="resume", summary="runner started", extra={"word": "resume"})
+    beat, tried, spent = Beat(), set(), 0.0
+    try:
+        while True:
+            ev = talos.read_ledger()
+            word = talos.runner_word(ev)[0]
+            if word == "stop":
+                beat.set("stopped by you")
+                return 0
+            if spent >= max_usd:
+                beat.set(f"stopped at the ${max_usd:.0f} limit (spent ${spent:.2f}); start it again with a higher --max-usd")
+                return 0
+            fm, _ = talos.parse_frontmatter((talos.CO / "charter.md").read_text(encoding="utf-8"))
+            action, why = talos.next_action(ev, talos.read_state(), talos.load_items(), fm, tried)
+            if word == "pause":
+                beat.set("paused; say \"resume\" to continue")
+            elif action is None:
+                beat.set(why)
+            else:
+                phase, text, key = action
+                tried.add(key)
+                if phase == "resume":
+                    planned = resume_plan(text)
+                    if not planned:
+                        continue
+                    phase, text = planned[0][0], planned[1]
+                beat.set(why, phase)
+                before = ledger_len()
+                run_phase(phase, text, None, None, False)
+                spent += sum(float(e.get("cost_usd") or 0) for e in talos.read_ledger()[before:] if e["event"] == "run.completed")
+                beat.set("between phases")
+                continue
+            time.sleep(POLL_SECONDS)
+    finally:
+        try:
+            beat.path.unlink()
+        except OSError:
+            pass
+
+
 def main() -> int:
     args = sys.argv[1:]
+    if args[:1] == ["work"]:
+        if not (ROOT / "company").exists():
+            sys.exit("talos run: run from the project root (no company/ here)")
+        return work(args[1:])
     if not args or args[0] in ("-h", "--help") or (args[0] not in PHASES and args[0] not in ("cycle", "resume")):
         print(__doc__)
         return 0 if args and args[0] in ("-h", "--help") else 2
     phase, rest = args[0], args[1:]
-    model = turns = None
+    model = turns = preset = None
     dry = False
     text = []
     i = 0
@@ -302,6 +414,10 @@ def main() -> int:
             model, i = rest[i + 1], i + 2
         elif rest[i] == "--max-turns":
             turns, i = int(rest[i + 1]), i + 2
+        elif rest[i] == "--preset":
+            preset, i = rest[i + 1], i + 2
+            if preset not in ("lite", "medium", "heavy"):
+                sys.exit("talos run: --preset takes lite, medium or heavy")
         elif rest[i] == "--dry-run":
             dry, i = True, i + 1
         else:
@@ -319,7 +435,7 @@ def main() -> int:
     else:
         phases = CYCLE if phase == "cycle" else [phase]
     for i, ph in enumerate(phases):
-        rc = run_phase(ph, words if i == 0 or phase != "resume" else "", model, turns, dry)
+        rc = run_phase(ph, words if i == 0 or phase != "resume" else "", model, turns, dry, preset)
         if rc:
             return rc
     return 0

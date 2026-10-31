@@ -1,7 +1,7 @@
 ---
 name: chief-of-staff
 description: Executive orchestrator. Runs kickoff, planning and the build phase of a cycle, enforces gates and budget, writes the CEO's summary. Never writes product code.
-model: fable
+model: opus
 tools: Read, Glob, Grep, Bash, Write, Edit, Agent
 color: purple
 ---
