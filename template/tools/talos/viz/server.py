@@ -14,6 +14,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlsplit
 
+from . import hierarchy as H
 from . import record as R
 from .projects import Projects
 from .watch import Watcher
@@ -143,16 +144,28 @@ def _make_handler(projects: Projects, static_dir: Path, allowed: frozenset[str])
             body = json.dumps({"projects": projects.scan()}, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
             self._send(200, "application/json; charset=utf-8", body, {"Cache-Control": "no-store"}, head)
 
-        def _snapshot(self, head: bool) -> None:
-            source = self._source()
-            if source is None:
-                return
-            body = json.dumps(source.snapshot, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        def _json(self, data: dict, head: bool) -> None:
+            body = json.dumps(data, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
             extra = {"Cache-Control": "no-store", "Vary": "Accept-Encoding"}
             if "gzip" in self.headers.get("Accept-Encoding", ""):
                 body = gzip.compress(body, compresslevel=5)
                 extra["Content-Encoding"] = "gzip"
             self._send(200, "application/json; charset=utf-8", body, extra, head)
+
+        def _snapshot(self, head: bool) -> None:
+            source = self._source()
+            if source is None:
+                return
+            self._json(source.snapshot, head)
+
+        def _hierarchy(self, head: bool) -> None:
+            source = self._source()
+            if source is None:
+                return
+            if not isinstance(source, Watcher):  # --snapshot serves a fixed file: there is no record to read
+                return self._send(404, "application/json; charset=utf-8", b'{"error":"no record"}', head=head)
+            ledger, _ = R.read_ledger(source.record / "ledger.jsonl")
+            self._json(H.build(source.project_root, source.record, ledger, source.transcripts, source.talos_dir), head)
 
         def _events(self, head: bool) -> None:
             source = self._source()
@@ -209,6 +222,8 @@ def _make_handler(projects: Projects, static_dir: Path, allowed: frozenset[str])
                 return self._static(unquote(path[len("/static/"):]), head)
             if path == "/api/snapshot":
                 return self._snapshot(head)
+            if path == "/api/hierarchy":
+                return self._hierarchy(head)
             if path == "/api/events":
                 return self._events(head)
             if path == "/api/projects":

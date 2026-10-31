@@ -1,0 +1,37 @@
+{
+ "source": "transcripts", "reason": null,
+ "sessions": [{"id": "s1", "phase": "cycle-build", "model": "sonnet", "tokens": 1500000, "start": "2026-10-28T09:00:00", "end": "2026-10-28T11:15:00", "cost_usd": 12.5}],
+ "tasks": [
+  {"id": "agent-1", "role": "head-of-product", "desc": "Write the charter", "items": [], "session": "s1", "phase": "kickoff", "depth": 1, "branch": null, "finished": true, "tokens": 900000, "model": "opus", "start": "2026-10-28T09:05:00", "end": "2026-10-28T09:15:00", "outcome": "support"},
+  {"id": "agent-2", "role": "chief-architect", "desc": "Spec ITEM-0001 and ITEM-0002", "items": ["ITEM-0001", "ITEM-0002"], "session": "s1", "phase": "plan", "depth": 1, "branch": null, "finished": true, "tokens": 2100000, "model": "opus", "start": "2026-10-28T09:40:00", "end": "2026-10-28T09:55:00", "outcome": "support"},
+  {"id": "agent-3", "role": "engineer", "desc": "Build ITEM-0001 timer", "items": ["ITEM-0001"], "session": "s1", "phase": "cycle-build", "depth": 1, "branch": "vc/item-0001", "finished": true, "tokens": 1400000, "model": "sonnet", "start": "2026-10-28T10:00:00", "end": "2026-10-28T10:12:00", "outcome": "sent_back"},
+  {"id": "agent-4", "role": "engineer", "desc": "Apply review fixes ITEM-0001", "items": ["ITEM-0001"], "session": "s1", "phase": "cycle-build", "depth": 1, "branch": "vc/item-0001", "finished": true, "tokens": 500000, "model": "sonnet", "start": "2026-10-28T10:30:00", "end": "2026-10-28T10:36:00", "outcome": "verified"},
+  {"id": "agent-5", "role": "ui-engineer", "desc": "Build ITEM-0002 settings", "items": ["ITEM-0002"], "session": "s1", "phase": "cycle-build", "depth": 1, "branch": "vc/item-0002", "finished": true, "tokens": 3000000, "model": "sonnet", "start": "2026-10-28T10:05:00", "end": "2026-10-28T10:30:00", "outcome": "blocked"},
+  {"id": "agent-6", "role": "code-reviewer", "desc": "Review ITEM-0001", "items": ["ITEM-0001"], "session": "s1", "phase": "cycle-build", "depth": 1, "branch": null, "finished": true, "tokens": 700000, "model": "opus", "start": "2026-10-28T10:15:00", "end": "2026-10-28T10:20:00", "outcome": "support"},
+  {"id": "agent-7", "role": "test-engineer", "desc": "Verify ITEM-0001", "items": ["ITEM-0001"], "session": "s1", "phase": "cycle-verify", "depth": 1, "branch": null, "finished": true, "tokens": 400000, "model": "sonnet", "start": "2026-10-28T10:40:00", "end": "2026-10-28T10:46:00", "outcome": "support"},
+  {"id": "agent-8", "role": "engineer", "desc": "Build ITEM-0003 sound", "items": ["ITEM-0003"], "session": "s1", "phase": "cycle-build", "depth": 1, "branch": "vc/item-0003", "finished": false, "tokens": 200000, "model": "sonnet", "start": "2026-10-28T10:50:00", "end": "2026-10-28T10:52:00", "outcome": "abandoned"},
+  {"id": "agent-9", "role": "librarian", "desc": "Rebuild the index", "items": [], "session": "s1", "phase": "retro", "depth": 1, "branch": null, "finished": true, "tokens": 60000, "model": "haiku", "start": "2026-10-28T11:10:00", "end": "2026-10-28T11:11:00", "outcome": "support"}
+ ],
+ "ceo": [
+  {"ts": "2026-10-28T09:00:00", "event": "brief", "ref": null, "summary": "Build a focus timer"},
+  {"ts": "2026-10-28T09:30:00", "event": "charter.approved", "ref": "charter", "summary": "Approved"},
+  {"ts": "2026-10-28T12:00:00", "event": "release.approved", "ref": "ITEM-0001", "summary": "Ship it"}
+ ],
+ "cycles": [{"n": 1, "ts": "2026-10-28T09:58:00"}],
+ "items": {
+  "ITEM-0001": {"state": "shipped", "sent_back": 1, "tokens": 5100000, "first": "2026-10-28T09:40:00", "last": "2026-10-28T12:01:00", "steps": [
+   {"ts": "2026-10-28T09:40:00", "actor": "chief-architect", "kind": "task", "what": "Spec ITEM-0001 and ITEM-0002", "tokens": 2100000, "task": "agent-2", "wait": 0, "on_you": false},
+   {"ts": "2026-10-28T10:00:00", "actor": "engineer", "kind": "task", "what": "Build ITEM-0001 timer", "tokens": 1400000, "task": "agent-3", "wait": 1200, "on_you": false},
+   {"ts": "2026-10-28T10:15:00", "actor": "code-reviewer", "kind": "review.changes_requested", "what": "Pause keeps a stale end time", "tokens": null, "wait": 900, "on_you": false},
+   {"ts": "2026-10-28T10:30:00", "actor": "engineer", "kind": "task", "what": "Apply review fixes ITEM-0001", "tokens": 500000, "task": "agent-4", "wait": 900, "on_you": false},
+   {"ts": "2026-10-28T10:46:00", "actor": "test-engineer", "kind": "item.verified", "what": "status=verified", "tokens": null, "wait": 960, "on_you": false},
+   {"ts": "2026-10-28T12:00:00", "actor": "ceo", "kind": "release.approved", "what": "Ship it", "tokens": null, "wait": 4440, "on_you": true},
+   {"ts": "2026-10-28T12:01:00", "actor": "chief-of-staff", "kind": "release.shipped", "what": "merged into main", "tokens": null, "wait": 0, "on_you": false}
+  ]},
+  "ITEM-0002": {"state": "blocked", "sent_back": 0, "tokens": 5100000, "first": "2026-10-28T09:40:00", "last": "2026-10-28T10:30:00", "steps": [
+   {"ts": "2026-10-28T09:40:00", "actor": "chief-architect", "kind": "task", "what": "Spec ITEM-0001 and ITEM-0002", "tokens": 2100000, "task": "agent-2", "wait": 0, "on_you": false},
+   {"ts": "2026-10-28T10:05:00", "actor": "ui-engineer", "kind": "task", "what": "Build ITEM-0002 settings", "tokens": 3000000, "task": "agent-5", "wait": 1500, "on_you": false}
+  ]}
+ },
+ "totals": {"tokens": 10360000, "orchestration": 1500000, "unattributed": 2460000, "cost_usd": 41.2, "questions": 2}
+}

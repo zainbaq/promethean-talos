@@ -3,6 +3,7 @@
 import { h, svg, text } from "./dom.js";
 import * as motion from "./motion.js";
 import { glyphDefs } from "./rings.js";
+import * as canopyView from "./views/canopy.js";
 import * as nowView from "./views/now.js";
 import * as timelineView from "./views/timeline.js";
 import * as workView from "./views/work.js";
@@ -98,9 +99,16 @@ const ctx = {
   now: nowMs,
   diff: null,
   fmt,
+  // Canopy's data is too heavy for the snapshot, so it has its own read. Views still never touch the network.
+  async hierarchy() {
+    const url = dataName ? `/static/fixtures/hierarchy-${encodeURIComponent(dataName)}.json` : `/api/hierarchy${projectQuery}`;
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) throw new Error(`${url}: ${res.status}`);
+    return res.json();
+  },
 };
 
-const VIEWS = [nowView, timelineView, workView];
+const VIEWS = [nowView, timelineView, workView, canopyView];
 const views = new Map(VIEWS.map((mod) => [mod.id, { id: mod.id, mod, section: null, mounted: false, prev: null, scroll: 0 }]));
 const refs = {};
 let current = "now";
@@ -187,6 +195,7 @@ const ICONS = {
   timeline: [["path", { d: "M6 4v16" }], ["circle", { cx: 6, cy: 7, r: 1.6, class: "ico-fill" }], ["circle", { cx: 6, cy: 13, r: 1.6, class: "ico-fill" }],
     ["path", { d: "M10 7h9M10 13h6M10 19h8" }]],
   work: [["rect", { x: 3.5, y: 4, width: 4.5, height: 16, rx: 1.2 }], ["rect", { x: 9.75, y: 4, width: 4.5, height: 10, rx: 1.2 }], ["rect", { x: 16, y: 4, width: 4.5, height: 13, rx: 1.2 }]],
+  canopy: [["path", { d: "M12 21V9M12 15l-6-5M12 12l5-5M6 10 3.5 6M17 7l2.5-3.5M8 21h8" }]],
   rail: [["rect", { x: 3.5, y: 4.5, width: 17, height: 15, rx: 2.5 }], ["path", { d: "M9.5 4.5v15" }], ["path", { class: "ico-chev", d: "M13.5 9.5 16 12l-2.5 2.5" }]],
 };
 

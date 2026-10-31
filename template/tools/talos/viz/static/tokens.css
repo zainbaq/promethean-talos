@@ -116,6 +116,7 @@
   --danger: #B3261E;         /* 5.7:1 on bg, 6.2 on surface, 5.1 on sunken  blocked, error */
   --danger-soft: #F6D9D6;    /* danger on it 4.9 */
   --focus: #15201B;
+  --root: #6B5B45;           /* Canopy only: the CEO's roots and gates. A material, not a fourth meaning. */
 }
 
 @media (prefers-color-scheme: dark) {
@@ -143,6 +144,7 @@
     --danger: #F39089;       /*  8.3:1 on bg */
     --danger-soft: #3D1A18;  /* danger on it 6.7 */
     --focus: #EAEDE6;
+    --root: #B9A27F;
   }
 }
 
