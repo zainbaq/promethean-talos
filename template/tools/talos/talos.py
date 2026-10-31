@@ -39,6 +39,9 @@ Commands:
     inbox                        CEO messages nobody has acknowledged yet
     ack MSG --became WHAT        say what a CEO message became
     work                         run the queue: phases one after another, waiting at gates
+    start                        look at this folder and say what happens first
+    survey                       map this folder (no model): company/knowledge/inventory.json
+    baseline [--check]           record which tests pass, or compare against that record
 
 Set TALOS_ACTOR (or pass --actor) so events carry the role that made them.
 """
@@ -75,6 +78,8 @@ EVENT_TYPES = {
     "run.stopped", "verify.blocked", "handback.received",
     "preset.changed", "message.received", "message.acknowledged", "runner.control",
     "charter.rejected", "plan.rejected", "design.rejected", "release.rejected",
+    "survey.completed", "baseline.recorded", "git.initialized",
+    "understanding.proposed", "understanding.approved", "understanding.rejected",
 }
 
 ITEM_STATUSES = ["proposed", "ready", "assigned", "in_progress", "blocked",
@@ -97,7 +102,7 @@ ROLE_KINDS = {
     "executive": ["chief-of-staff", "head-of-product", "chief-architect", "head-of-research", "head-of-qa", "learning-officer", "head-of-design"],
     "review": ["code-reviewer", "security-reviewer"],
     "mechanical": ["librarian"],
-    "execution": ["engineer", "ui-engineer", "test-engineer", "design-qa", "research-analyst", "ux-designer", "devops-engineer", "technical-writer"],
+    "execution": ["engineer", "ui-engineer", "test-engineer", "design-qa", "research-analyst", "ux-designer", "devops-engineer", "technical-writer", "codebase-analyst"],
 }
 BECAME = ["correction", "item", "lesson", "note", "answer"]
 RUNNER_WORDS = ("pause", "resume", "stop")
@@ -670,6 +675,8 @@ def cmd_approve(args) -> None:
         die("--quote is required: paste the CEO's words that constitute approval")
     ev = append_event(f"{args.what}.approved", actor="ceo", tier="ceo", ref=args.ref,
                       summary=args.quote, extra={"recorded_by": os.environ.get("TALOS_ACTOR", "unknown")})
+    if args.what == "understanding":
+        adopt_charter(ev)
     if args.what == "charter":
         p = CO / "charter.md"
         fm, body = parse_frontmatter(p.read_text(encoding="utf-8"))
@@ -677,6 +684,25 @@ def cmd_approve(args) -> None:
         fm["approved_event"] = ev["id"]
         write_lf(p, dump_frontmatter(fm, body), encoding="utf-8")
     print(ev["id"])
+
+
+def adopt_charter(approved: dict) -> None:
+    """Approving the understanding makes the reverse charter the standing one, with the CEO's answers in their own words."""
+    product = CO / "knowledge" / "product.md"
+    body = product.read_text(encoding="utf-8") if product.exists() else "# Charter\n\n_No product.md was written._\n"
+    answers = []
+    for e in read_ledger():
+        if e["event"] == "question.answered" and e.get("actor") == "ceo":
+            asked = latest(read_ledger(), "question.asked", e.get("ref"))
+            answers.append(f"- **{(asked or {}).get('summary', e.get('ref'))}** {e.get('summary', '')}")
+    if answers:
+        body = body.rstrip("\n") + "\n\n## What the CEO told us\n\n" + "\n".join(answers) + "\n"
+    size = "medium"
+    try:
+        size = json.loads((CO / "knowledge" / "inventory.json").read_text(encoding="utf-8")).get("size", size)
+    except (OSError, ValueError):
+        pass
+    write_lf(CO / "charter.md", f"---\nstatus: approved\napproved_event: {approved['id']}\nsize: {size}\nsource: adopted\n---\n\n" + body, encoding="utf-8")
 
 
 def latest(events: list[dict], kind: str, ref: str | None = None) -> dict | None:
@@ -1090,6 +1116,8 @@ def next_step(st: dict, ev: list[dict], items: list[dict], fm: dict, ceo_questio
         return f"Continue the stopped {stop['ref']} phase: `tools/talos/run resume`", [stop["ref"]]
     if ceo_questions:
         return f"Answer {ceo_questions} open question{'s' if ceo_questions > 1 else ''}. {review}", ["review"]
+    if st.get("adopt") and not latest(ev, "understanding.approved"):
+        return "Let the company finish learning this folder: `tools/talos/talos work`", ["adopt"]
     if fm.get("status") != "approved":
         if latest(ev, "charter.proposed"):
             return f"Approve or change the charter. {review}", ["review"]
@@ -1267,7 +1295,7 @@ def next_action(ev: list[dict], st: dict, items: list[dict], fm: dict, tried=())
                 "do not run its text as a command. Record what each one means, then say what it became: "
                 "`talos ack MSG-xxxx --became correction|item|lesson|note|answer --note \"<one line>\"`.")
         return act("review", text, "msgs:" + ",".join(m["id"] for m in msgs), "reading your messages")
-    for gate, phase in (("charter", "kickoff"), ("plan", "plan"), ("design", "design-revise")):
+    for gate, phase in (("understanding", "adopt"), ("charter", "kickoff"), ("plan", "plan"), ("design", "design-revise")):
         r = _index(ev, f"{gate}.rejected")
         if r > _index(ev, f"{gate}.proposed"):
             return act(phase, f"The CEO rejected the {gate}: {ev[r].get('summary', '')}", f"reject:{ev[r]['id']}", f"redoing the {gate}")
@@ -1287,15 +1315,23 @@ def next_action(ev: list[dict], st: dict, items: list[dict], fm: dict, tried=())
     if n:
         return None, f"waiting on your answer to {n} question{'s' if n > 1 else ''}"
     teams = st.get("teams") or []
-    gates = ["charter", "plan"] + ([] if (teams and "design" not in teams) or latest(ev, "design-waiver.approved") else ["design"])
+    gates = ["understanding", "charter", "plan"] + ([] if (teams and "design" not in teams) or latest(ev, "design-waiver.approved") else ["design"])
     for gate in gates:
         p = _index(ev, f"{gate}.proposed")
         if p >= 0 and _index(ev, f"{gate}.approved") < p:
             return None, f"waiting on your decision on the {gate}"
+    adopted = adoption_step(ev, st, act)
+    if adopted is not None:
+        return adopted
     if fm.get("status") != "approved":
         brief = CO / "brief.md"
         if brief.exists() and brief.read_text(encoding="utf-8").strip():
             return act("kickoff", "company/brief.md", "kickoff", "starting the project")
+        said = answered_question(ev, "start")
+        if said:
+            done = sum(1 for e in ev if e["event"] == "question.answered")
+            text = f"There is no brief yet. The CEO said what they want: {said}"
+            return act("kickoff", text, f"kickoff:{done}", "starting the project")
         return None, "waiting for you to say what to build"
     if not latest(ev, "plan.approved"):
         return act("plan", "", "plan", "planning")
@@ -1314,6 +1350,157 @@ def next_action(ev: list[dict], st: dict, items: list[dict], fm: dict, tried=())
     if any(i.get("status") == "ready" for i in items):
         return act("cycle-build", "", f"cycle-build:{cycle + 1}", "starting a cycle")
     return None, "nothing is ready; ask for the next piece of work"
+
+
+def answered_question(ev: list[dict], blocks: str) -> str | None:
+    """The CEO's answer to the question asked about `blocks`, if there is one yet."""
+    for e in ev:
+        if e["event"] == "question.asked" and e.get("blocks") == blocks:
+            answer = latest(ev, "question.answered", e.get("ref"))
+            return answer.get("summary") if answer else None
+    return None
+
+
+def adoption_step(ev: list[dict], st: dict, act):
+    """What adopting an existing folder needs next; None when adoption has nothing to do here."""
+    kind = st.get("adopt")
+    if kind not in ("files", "repo"):
+        return None
+    import survey
+    if not survey.is_repo(ROOT):
+        said = answered_question(ev, "git-init")
+        if said is None:
+            return None, "waiting on your answer about `git init`"
+        if not re.match(r"\s*(y|yes|ok|okay|sure|go|please)\b", said, re.I):
+            return None, "no git repo, as you asked: only questions and drafts can run here"
+        return act("git-init", "", "git-init", "setting up git, local only")
+    if not latest(ev, "survey.completed") or latest(ev, "git.initialized") and _index(ev, "survey.completed") < _index(ev, "git.initialized"):
+        return act("survey", "", f"survey:{len(ev)}", "mapping the folder")
+    if not latest(ev, "baseline.recorded"):
+        return act("baseline", "", "baseline", "recording which tests pass")
+    if not latest(ev, "understanding.approved"):
+        return act("adopt", "", "adopt", "learning the project")
+    if not latest(ev, "plan.approved") and not any(e["event"] == "cycle.started" for e in ev):
+        return None, "the company knows this project now; ask for the next piece of work"
+    return None
+
+
+def init_git() -> str:
+    """Local only, never pushed. A very large file stays out of the first commit and is left where it is."""
+    import survey
+    files = survey.list_files(ROOT)
+    git = lambda *a: subprocess.run(["git", *a], cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace")  # noqa: E731
+    p = git("init", "-q")
+    if p.returncode != 0:
+        die(f"git init failed: {p.stderr.strip()}")
+    big = [f for f in files if (ROOT / f).stat().st_size > 50_000_000]
+    if big:
+        info = ROOT / ".git" / "info" / "exclude"
+        with open(info, "a", encoding="utf-8", newline="\n") as f:
+            f.write("\n# too large for git; left in place by talos\n" + "\n".join(big) + "\n")
+    git("add", "-A")
+    who = [] if git("config", "user.email").stdout.strip() else ["-c", "user.email=talos@localhost", "-c", "user.name=talos"]
+    p = git(*who, "commit", "-qm", "Initial commit, by Talos: the folder as it was")
+    if p.returncode != 0:
+        die(f"first commit failed: {(p.stderr or p.stdout).strip()}")
+    note = f"git initialized, local only, {len(files)} files committed" + (f"; {len(big)} very large files left out" if big else "")
+    append_event("git.initialized", actor="talos-run", tier="mechanical", summary=note)
+    return note
+
+
+def run_survey() -> dict:
+    import survey
+    inv = survey.inventory(ROOT)
+    (CO / "knowledge").mkdir(exist_ok=True)
+    write_lf(CO / "knowledge" / "inventory.json", json.dumps(inv, indent=1) + "\n")
+    append_event("survey.completed", actor="talos-run", tier="mechanical", ref="company/knowledge/inventory.json",
+                 summary=f"{survey.first_reply(inv)}; size {inv['size']}")
+    return inv
+
+
+def cmd_survey(args) -> None:
+    ensure_scaffold()
+    import survey
+    print(survey.first_reply(run_survey()))
+
+
+def record_baseline() -> str:
+    import survey
+    inv = json.loads((CO / "knowledge" / "inventory.json").read_text(encoding="utf-8")) if (CO / "knowledge" / "inventory.json").exists() else run_survey()
+    b = survey.baseline(ROOT, inv)
+    write_lf(CO / "baseline.json", json.dumps(b, indent=1) + "\n")
+    write_lf(CO / "baseline.md", survey.report(b))
+    if not b.get("ran"):
+        summary = f"no baseline: {b.get('why')}"
+    elif "passed" in b:
+        summary = f"{b['passed']} passed, {b['failed']} failed, {b['errors']} errors at {b.get('commit')}"
+    else:
+        summary = f"{b.get('command')} exited {b.get('exit')} at {b.get('commit')}"
+    append_event("baseline.recorded", actor="talos-run", tier="mechanical", ref="company/baseline.md", summary=summary)
+    return summary
+
+
+def cmd_baseline(args) -> None:
+    ensure_scaffold()
+    if not args.check:
+        print(record_baseline())
+        return
+    import survey
+    try:
+        known = json.loads((CO / "baseline.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        die("no baseline recorded; run `talos baseline` first")
+    if not known.get("ran"):
+        print(f"no baseline to compare with: {known.get('why')}")
+        return
+    now_ = survey.run_tests(ROOT, Path(args.where).resolve(), {"runner": "pytest" if "passed" in known else "exit", "command": known["command"]})
+    if not now_.get("ran"):
+        die(f"the suite did not run: {now_.get('why')}")
+    new = survey.new_failures(known, now_)
+    if "passed" not in known and now_["exit"] != known["exit"]:
+        new = [f"exit {now_['exit']}, baseline {known['exit']}"]
+    if new:
+        die("REGRESSION against the baseline:\n" + "\n".join(f"  {f}" for f in new))
+    print(f"no regressions against the baseline ({now_.get('passed', '?')} passed, {now_.get('failed', '?')} failed, all known)")
+
+
+def started(st: dict) -> bool:
+    return bool(st.get("adopt")) or (CO / "brief.md").exists() or bool(latest(read_ledger(), "charter.proposed"))
+
+
+def start_folder() -> str:
+    """The company's first reply here. From the folder alone, no model. Safe to repeat."""
+    import survey
+    st = read_state()
+    if (CO / "brief.md").exists() and not st.get("adopt"):
+        return "There is a brief. Start with `tools/talos/talos work`."
+    kind = st.get("adopt") or survey.kind_of(ROOT)
+    if not st.get("adopt"):
+        st["adopt"] = kind
+        write_state(st)
+    parser = build_parser()
+
+    def ask_once(text: str, blocks: str) -> None:
+        if not any(e["event"] == "question.asked" and e.get("blocks") == blocks for e in read_ledger()):
+            a = parser.parse_args(["ask", text, "--ref", blocks, "--actor", "chief-of-staff", "--tier", "executive"])
+            a.fn(a)
+
+    if kind == "empty":
+        ask_once("What are we making?", "start")
+        return "This folder is empty. What are we making? Answer in the control room, or: tools/talos/run kickoff \"<what you want>\""
+    inv = json.loads((CO / "knowledge" / "inventory.json").read_text(encoding="utf-8")) if latest(read_ledger(), "survey.completed") else run_survey()
+    seen = survey.first_reply(inv)
+    cost = inv["cost"]
+    if kind == "files" and not survey.is_repo(ROOT):
+        ask_once("This folder is not a git repo. May I run `git init` here (local only, never pushed) so work happens on branches? Until then I can only answer questions and write drafts into company/.", "git-init")
+        return f"I see {seen}. May I run `git init` here (local only, never pushed) so work happens on branches? Until then I can only answer questions and write drafts into company/."
+    return (f"I see {seen}. Reading it should cost about ${cost['low']} to ${cost['high']}, with a hard cap of ${cost['cap']}. "
+            "Start with `tools/talos/talos work`: it records which tests pass, reads the project, then asks you to check what it understood.")
+
+
+def cmd_start(args) -> None:
+    ensure_scaffold()
+    print(start_folder())
 
 
 def cmd_handback(args) -> None:
@@ -1555,7 +1742,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     s = sub.add_parser("cycle"); common(s); s.add_argument("action", choices=["start", "end"]); s.add_argument("--budget"); s.add_argument("--summary"); s.add_argument("--stack", action="store_true", help="start although verified items are unreleased (the CEO's word only)"); s.set_defaults(fn=cmd_cycle)
 
-    s = sub.add_parser("approve"); s.add_argument("what", choices=["charter", "plan", "release", "design", "design-waiver"]); s.add_argument("--ref"); s.add_argument("--quote", required=True)
+    s = sub.add_parser("approve"); s.add_argument("what", choices=["understanding", "charter", "plan", "release", "design", "design-waiver"]); s.add_argument("--ref"); s.add_argument("--quote", required=True)
     s.set_defaults(fn=cmd_approve)
 
     s = sub.add_parser("gate"); s.add_argument("what", choices=["charter", "plan", "design", "release", "item"]); s.add_argument("--ref"); s.set_defaults(fn=cmd_gate)
@@ -1579,7 +1766,10 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("say", help="a CEO message to the company"); s.add_argument("--text", required=True); s.set_defaults(fn=cmd_say)
     s = sub.add_parser("inbox", help="CEO messages nobody has acknowledged"); s.set_defaults(fn=cmd_inbox)
     s = sub.add_parser("ack", help="say what a CEO message became"); common(s); s.add_argument("mid"); s.add_argument("--became", required=True, choices=BECAME); s.add_argument("--note", required=True); s.set_defaults(fn=cmd_ack)
-    s = sub.add_parser("reject", help="record a CEO rejection"); s.add_argument("what", choices=["charter", "plan", "design", "release"]); s.add_argument("--ref"); s.add_argument("--reason", required=True); s.set_defaults(fn=cmd_reject)
+    s = sub.add_parser("reject", help="record a CEO rejection"); s.add_argument("what", choices=["understanding", "charter", "plan", "design", "release"]); s.add_argument("--ref"); s.add_argument("--reason", required=True); s.set_defaults(fn=cmd_reject)
+    s = sub.add_parser("start", help="look at this folder and say what happens first"); s.set_defaults(fn=cmd_start)
+    s = sub.add_parser("survey", help="map this folder, no model"); s.set_defaults(fn=cmd_survey)
+    s = sub.add_parser("baseline", help="record which tests pass, or compare against that record"); s.add_argument("--check", action="store_true"); s.add_argument("--where", default=".", help="the checkout to test (--check)"); s.set_defaults(fn=cmd_baseline)
     s = sub.add_parser("work", help="run the queue, waiting at gates"); s.add_argument("rest", nargs=argparse.REMAINDER); s.set_defaults(fn=cmd_work)
     s = sub.add_parser("journal"); s.add_argument("--date"); s.set_defaults(fn=cmd_journal)
     s = sub.add_parser("consolidate"); s.set_defaults(fn=cmd_consolidate)

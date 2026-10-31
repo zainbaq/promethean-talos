@@ -2,7 +2,11 @@
 """
 init.py — stamp the Talos framework into a target project.
 
-    python init.py /path/to/project [--brief brief.md] [--teams core,design] [--force] [--prune] [--viz]
+    uv run init.py /path/to/project [--brief brief.md] [--teams core,design] [--force] [--prune] [--viz] [--no-commit]
+
+The folder can be empty, not a repo, or an existing repo. In a repo that already has commits nothing of the developer's is rewritten:
+ignores go in .git/info/exclude, no .gitattributes is added, and the framework's own files get one local commit (--no-commit skips it)
+that leaves any other changes alone. Then `tools/talos/talos start` says what happens first.
 
 What it does (idempotent; safe to re-run to pick up framework updates):
   1. Copies the agents of the staffed teams (template/tools/talos/teams.json; default: all) and
@@ -60,6 +64,26 @@ def copy_tree(src: Path, dst: Path, force: bool, skip: tuple[str, ...] = ()) -> 
         shutil.copy2(p, target)
         written.append(str(rel))
     return written, kept
+
+
+def git_out(target: Path, *args: str) -> str:
+    try:
+        p = subprocess.run(["git", *args], cwd=target, capture_output=True, text=True, encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+    return p.stdout if p.returncode == 0 else ""
+
+
+def commit_stamp(target: Path, dirty: set[str]) -> str:
+    """One local commit of the framework's files, so worktrees have them. Nothing else in the checkout goes with it."""
+    paths = [p for p in (".claude", "tools/talos", "company", "CLAUDE.md") if (target / p).exists() and not any(d == p or d.startswith(p + "/") for d in dirty)]
+    subprocess.run(["git", "add", "--", *paths], cwd=target, capture_output=True)
+    who = [] if git_out(target, "config", "user.email").strip() else ["-c", "user.email=talos@localhost", "-c", "user.name=talos"]
+    p = subprocess.run(["git", *who, "commit", "-qm", "Add Talos (framework files only)", "--", *paths], cwd=target, capture_output=True, text=True, encoding="utf-8", errors="replace")
+    if p.returncode != 0:
+        return f"not committed ({(p.stderr or p.stdout).strip()[:160]}); worktrees will not have tools/talos until you commit it"
+    skipped = f"; left out because you had changes there: {', '.join(sorted(dirty))}" if dirty else ""
+    return f"committed the framework's files locally, not pushed{skipped}"
 
 
 def load_teams() -> dict:
@@ -153,6 +177,7 @@ def main() -> None:
     ap.add_argument("--teams", help="comma-separated teams to staff (see template/tools/talos/teams.json); default: every team")
     ap.add_argument("--prune", action="store_true", help="remove stamped agents of teams not in --teams")
     ap.add_argument("--python", default="3.12", help="Python version for the project venv created with uv (default 3.12)")
+    ap.add_argument("--no-commit", action="store_true", help="in an existing repo, do not commit the framework's files")
     ap.add_argument("--viz", action="store_true",
                     help="also install the visualizer (tools/talos/viz; start it with `tools/talos/talos viz`). "
                          "Projects are headless by default; a project that already has it keeps it on re-stamp")
@@ -169,6 +194,8 @@ def main() -> None:
     except Exception:
         pass
     print(f"Stamping Talos into {target}\n")
+    existing_repo = git_out(target, "rev-parse", "HEAD").strip() != ""
+    dirty = {l[3:].strip('"') for l in git_out(target, "status", "--porcelain", "--", ".claude", "tools/talos", "company", "CLAUDE.md").splitlines()} if existing_repo else set()
 
     teams = [t.strip() for t in (args.teams or ",".join(load_teams())).split(",") if t.strip()]
     if args.teams and "core" not in teams:
@@ -197,12 +224,14 @@ def main() -> None:
     # Repo hygiene learned from the first live run: force LF checkouts so byte-exact
     # fixtures survive Windows autocrlf, and keep bytecode and test caches out of git.
     ga = target / ".gitattributes"
-    if not ga.exists():
+    if existing_repo:
+        print(".gitattributes: not added (this repo's line endings are its own)")
+    elif not ga.exists():
         shutil.copy2(TEMPLATE / ".gitattributes", ga)
         print(".gitattributes: created (LF checkouts everywhere)")
     else:
         print(".gitattributes: kept (yours)")
-    gi = target / ".gitignore"
+    gi = target / ".git" / "info" / "exclude" if existing_repo else target / ".gitignore"
     wanted = ["__pycache__/", "*.pyc", ".pytest_cache/", ".venv/", ".claude/worktrees/", ".claude/settings.local.json", "company/.context/", ".talos/"]
     existing = gi.read_text(encoding="utf-8").splitlines() if gi.exists() else []
     missing = [w for w in wanted if w not in existing]
@@ -225,6 +254,8 @@ def main() -> None:
                 subprocess.run([uv, "venv", "--python", args.python, str(venv)], cwd=target, check=True)
                 subprocess.run([uv, "pip", "install", "--python", str(venv), "pytest"], cwd=target, check=True)
                 print(f".venv: created with uv (Python {args.python}) and pytest installed")
+                (target / ".talos").mkdir(exist_ok=True)
+                (target / ".talos" / "venv-ours").touch()
             except subprocess.CalledProcessError as e:
                 print(f".venv: NOT created (uv exited {e.returncode}). Fix uv's Python install "
                       f"(`uv python install {args.python} --reinstall`) and re-run init.py, or let the kickoff procedure create the venv.")
@@ -238,8 +269,9 @@ def main() -> None:
         cmd += ["--brief", str(Path(args.brief).resolve())]
     subprocess.run(cmd, cwd=target, check=True)
 
-    print("\nDone. Next: from the project root run `tools/talos/run kickoff company/brief.md` in the background "
-          "(or open the project in Claude Code and describe what you want to build).")
+    if existing_repo and not args.no_commit:
+        print(f"git: {commit_stamp(target, dirty)}")
+    print("\nDone. Next: from the project root run `tools/talos/talos start`.")
 
 
 if __name__ == "__main__":

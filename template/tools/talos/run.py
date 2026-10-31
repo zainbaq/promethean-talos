@@ -6,6 +6,7 @@ run.py: run one Talos phase as a fresh, lean, headless Claude Code session.
 
 Phases (the model comes from the effort preset: `talos preset`, or --preset for one run):
     kickoff        /talos-kickoff   executive  research, environment, charter
+    adopt          /talos-adopt     executive  read an existing folder; ends at the understanding gate (cost capped by size)
     plan           /talos-plan      executive  ADRs, specs, backlog, test strategy
                                     (turn cap and depth from the charter size)
     design-revise  /talos-design-revise  executive  revise the design only, from the CEO's feedback; re-opens the gate
@@ -49,6 +50,7 @@ ROOT = Path(os.environ.get("TALOS_ROOT", Path.cwd()))
 
 PHASES = {
     "kickoff": ("/talos-kickoff", "executive", 60),
+    "adopt": ("/talos-adopt", "executive", 60),
     "plan": ("/talos-plan", "executive", 90),
     "design-revise": ("/talos-design-revise", "executive", 40),
     "review": ("/talos-review", "coordination", 30),
@@ -124,7 +126,18 @@ def command(phase: str, text: str, model: str | None, turns: int | None, preset:
     return [claude_bin(), "-p", prompt, "--model", model or talos.PRESETS[name][kind],
             "--permission-mode", "acceptEdits", "--allowedTools", TOOLS,
             "--max-turns", str(turns or default_turns), "--output-format", "json",
-            "--append-system-prompt", session_note(talos, name), *LEAN]
+            *budget_cap(phase), "--append-system-prompt", session_note(talos, name), *LEAN]
+
+
+def budget_cap(phase: str) -> list[str]:
+    """Reading a folder has a hard cap by its size, because nobody has said yes to spending more yet."""
+    if phase != "adopt":
+        return []
+    try:
+        cap = json.loads((ROOT / "company" / "knowledge" / "inventory.json").read_text(encoding="utf-8"))["cost"]["cap"]
+    except (OSError, ValueError, KeyError):
+        return []
+    return ["--max-budget-usd", str(cap)]
 
 
 def load_talos():
@@ -164,6 +177,8 @@ def stop_reason(res: dict) -> str | None:
     if any(k in text.lower() for k in LIMIT_WORDS):
         return "usage limit reached (the phase did not finish; `tools/talos/run resume` continues it when usage is available)"
     subtype = res.get("subtype")
+    if subtype == "error_max_budget_usd":
+        return f"hit the phase's cost cap at ${res.get('total_cost_usd', 0):.2f}; say \"resume\" to spend more"
     if subtype == "error_max_turns":
         return f"turn cap reached after {res.get('num_turns', '?')} turns; `tools/talos/run resume` continues it"
     if res.get("is_error") or subtype != "success":
@@ -205,6 +220,7 @@ PROOF = {
     "kickoff": ({"charter.proposed", "question.asked"}, "no charter.proposed or question.asked"),
     "plan": ({"plan.proposed", "question.asked"}, "no plan.proposed or question.asked"),
     "design-revise": ({"design.proposed", "question.asked"}, "no design.proposed or question.asked"),
+    "adopt": ({"understanding.proposed"}, "no understanding.proposed"),
     "cycle-build": ({"item.completed", "item.blocked", "question.asked"}, "no item completed or blocked"),
     "cycle-verify": ({"item.verified", "verify.blocked"}, "no item verified and no verify.blocked"),
     "cycle-close": ({"cycle.ended"}, "the cycle was not ended (no cycle.ended)"),
@@ -322,6 +338,7 @@ def resume_plan(extra: str) -> tuple[list[str], str] | None:
 
 
 POLL_SECONDS = 5
+SCRIPTED = {"git-init": lambda t: t.init_git(), "survey": lambda t: t.run_survey()["size"] + " folder surveyed", "baseline": lambda t: t.record_baseline()}
 
 
 class Beat:
@@ -356,6 +373,8 @@ def work(args: list[str]) -> int:
     talos = load_talos()
     if talos.runner_word(talos.read_ledger())[0] == "stop":
         talos.append_event("runner.control", actor="talos-run", tier="mechanical", ref="resume", summary="runner started", extra={"word": "resume"})
+    if not talos.started(talos.read_state()):
+        print(talos.start_folder(), flush=True)
     beat, tried, spent = Beat(), set(), 0.0
     try:
         while True:
@@ -381,6 +400,10 @@ def work(args: list[str]) -> int:
                     if not planned:
                         continue
                     phase, text = planned[0][0], planned[1]
+                if phase in SCRIPTED:
+                    beat.set(why)
+                    print(f"talos work: {SCRIPTED[phase](talos)}", flush=True)
+                    continue
                 beat.set(why, phase)
                 before = ledger_len()
                 run_phase(phase, text, None, None, False)

@@ -242,6 +242,7 @@ def gates(ledger: list[dict], state: dict, items: list[dict]) -> list[dict]:
             "command": f'tools/talos/run review "<your words approving the {name}>"',
         })
 
+    proposed_gate("understanding", "Understanding")
     proposed_gate("charter", "Charter")
     proposed_gate("plan", "Plan")
     teams = (state or {}).get("teams") or []

@@ -30,7 +30,7 @@ Requirements: Claude Code, git, and [`uv`](https://docs.astral.sh/uv/) (`winget 
 ```bash
 git clone https://github.com/zainbaq/promethean-talos
 uv run promethean-talos/init.py /path/to/your/project --brief my-brief.md --teams core,design
-cd /path/to/your/project && tools/talos/talos doctor && tools/talos/run kickoff company/brief.md
+cd /path/to/your/project && tools/talos/talos doctor && tools/talos/talos start
 ```
 
 In cmd or PowerShell on Windows, use `tools\talos\talos.cmd` and `tools\talos\run.cmd`. If a run stops on a usage limit, `tools/talos/run resume` continues it. `tools/talos/talos status` always ends with the next step.

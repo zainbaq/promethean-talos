@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 
 TALOS = Path(__file__).resolve().parent.parent / "talos.py"
-GATES = ("charter", "plan", "design", "release")
+GATES = ("understanding", "charter", "plan", "design", "release")
 PRESETS = ("lite", "medium", "heavy")
 MAX_TEXT = 4000
 ITEM_RE = re.compile(r"^ITEM-\d{4}$")

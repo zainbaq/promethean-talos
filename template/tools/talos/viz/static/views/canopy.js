@@ -13,7 +13,7 @@ const ROLE = {
   "head-of-research": "Head of Research", "learning-officer": "Learning Officer", engineer: "Engineer",
   "devops-engineer": "DevOps Engineer", "technical-writer": "Technical Writer", "test-engineer": "Test Engineer",
   "ui-engineer": "UI Engineer", "ux-designer": "UX Designer", "design-qa": "Design QA", "code-reviewer": "Code Reviewer",
-  "security-reviewer": "Security Reviewer", librarian: "Librarian", "research-analyst": "Research Analyst",
+  "security-reviewer": "Security Reviewer", librarian: "Librarian", "research-analyst": "Research Analyst", "codebase-analyst": "Codebase Analyst",
 };
 const roleName = (r) => ROLE[r] || r;
 
@@ -22,7 +22,7 @@ const TREE = [
   { role: "head-of-product", side: -1, at: 0.2, ang: 12, len: 0.3, twigs: [] },
   { role: "chief-architect", side: 1, at: 0.26, ang: 12, len: 0.36, twigs: [
     { role: "engineer", t: 0.72, turn: 40, len: 0.17 }, { role: "devops-engineer", t: 0.42, turn: -24, len: 0.12 },
-    { role: "technical-writer", t: 0.95, turn: -18, len: 0.1 }] },
+    { role: "technical-writer", t: 0.95, turn: -18, len: 0.1 }, { role: "codebase-analyst", t: 0.2, turn: 30, len: 0.12 }] },
   { role: "head-of-design", side: -1, at: 0.5, ang: 22, len: 0.31, twigs: [
     { role: "ui-engineer", t: 0.55, turn: 38, len: 0.22 }, { role: "design-qa", t: 0.92, turn: 48, len: 0.1 },
     { role: "ux-designer", t: 0.3, turn: -24, len: 0.12 }] },
