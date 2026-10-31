@@ -112,7 +112,7 @@ class FirstReply(Folder):
 class LeavesItAlone(Folder):
     def test_a_repo_keeps_its_ignores_line_endings_and_other_changes(self):
         self.make_repo()
-        self.write(".gitignore", "*.log\n")
+        self.write(".gitignore", "*.log\nCLAUDE.md\n")
         self.git("add", "-A")
         self.git("commit", "-qm", "ignore")
         self.write("app/main.py", "print('half done')\n")  # the developer's work in progress
@@ -120,7 +120,8 @@ class LeavesItAlone(Folder):
         self.git("add", "staged.py")
         out = self.stamp()
         self.assertIn("committed the framework", out)
-        self.assertEqual((self.root / ".gitignore").read_text(encoding="utf-8"), "*.log\n")
+        self.assertEqual((self.root / ".gitignore").read_text(encoding="utf-8"), "*.log\nCLAUDE.md\n")
+        self.assertIn("this repo ignores them: CLAUDE.md", out)
         self.assertFalse((self.root / ".gitattributes").exists())
         self.assertIn(".talos/", (self.root / ".git/info/exclude").read_text(encoding="utf-8"))
         self.assertIn("half done", (self.root / "app/main.py").read_text(encoding="utf-8"))

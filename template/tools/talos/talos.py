@@ -48,6 +48,8 @@ Set TALOS_ACTOR (or pass --actor) so events carry the role that made them.
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
 import json
 import os
 import re
@@ -1483,7 +1485,8 @@ def start_folder() -> str:
     def ask_once(text: str, blocks: str) -> None:
         if not any(e["event"] == "question.asked" and e.get("blocks") == blocks for e in read_ledger()):
             a = parser.parse_args(["ask", text, "--ref", blocks, "--actor", "chief-of-staff", "--tier", "executive"])
-            a.fn(a)
+            with contextlib.redirect_stdout(io.StringIO()):  # the id is not part of the reply
+                a.fn(a)
 
     if kind == "empty":
         ask_once("What are we making?", "start")

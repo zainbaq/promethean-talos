@@ -42,7 +42,7 @@ TODO = re.compile(r"\b(TODO|FIXME)\b")
 MAX_READ = 1_000_000
 SIZES = ((5_000, 100, "small"), (50_000, 1_000, "medium"))
 # What reading a folder costs, by size: the estimate shown first, and the hard cap on the understanding phase.
-COST = {"small": {"low": 2, "high": 5, "cap": 6}, "medium": {"low": 6, "high": 12, "cap": 15}, "large": {"low": 12, "high": 25, "cap": 30}}
+COST = {"small": {"low": 2, "high": 5, "cap": 6}, "medium": {"low": 3, "high": 8, "cap": 15}, "large": {"low": 12, "high": 25, "cap": 30}}
 BASELINE_TIMEOUT = 600
 SECRET_NAME = re.compile(r"KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|AWS_|AZURE_|GCP_|GOOGLE_|OPENAI|ANTHROPIC|DATABASE_URL|_DSN|_URL$", re.I)
 REMOTE_URL = re.compile(r"""https?://([A-Za-z0-9.-]+\.[A-Za-z]{2,})""")

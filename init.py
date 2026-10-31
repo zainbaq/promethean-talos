@@ -77,12 +77,17 @@ def git_out(target: Path, *args: str) -> str:
 def commit_stamp(target: Path, dirty: set[str]) -> str:
     """One local commit of the framework's files, so worktrees have them. Nothing else in the checkout goes with it."""
     paths = [p for p in (".claude", "tools/talos", "company", "CLAUDE.md") if (target / p).exists() and not any(d == p or d.startswith(p + "/") for d in dirty)]
+    ignored = set(git_out(target, "check-ignore", *paths).split())  # this repo's ignores are its own: leave those paths out
+    paths = [p for p in paths if p not in ignored]
+    if not paths:
+        return "nothing to commit: this repo ignores the framework's files, so worktrees will not have tools/talos"
     subprocess.run(["git", "add", "--", *paths], cwd=target, capture_output=True)
     who = [] if git_out(target, "config", "user.email").strip() else ["-c", "user.email=talos@localhost", "-c", "user.name=talos"]
     p = subprocess.run(["git", *who, "commit", "-qm", "Add Talos (framework files only)", "--", *paths], cwd=target, capture_output=True, text=True, encoding="utf-8", errors="replace")
     if p.returncode != 0:
         return f"not committed ({(p.stderr or p.stdout).strip()[:160]}); worktrees will not have tools/talos until you commit it"
     skipped = f"; left out because you had changes there: {', '.join(sorted(dirty))}" if dirty else ""
+    skipped += f"; left out because this repo ignores them: {', '.join(sorted(ignored))}" if ignored else ""
     return f"committed the framework's files locally, not pushed{skipped}"
 
 
