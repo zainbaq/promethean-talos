@@ -1366,9 +1366,11 @@ def answered_question(ev: list[dict], blocks: str) -> str | None:
 def adoption_step(ev: list[dict], st: dict, act):
     """What adopting an existing folder needs next; None when adoption has nothing to do here."""
     kind = st.get("adopt")
+    import survey
+    if kind == "empty" and latest(ev, "charter.approved") and not survey.is_repo(ROOT):
+        return act("git-init", "", "git-init", "setting up git, local only")  # nothing of theirs here to ask about
     if kind not in ("files", "repo"):
         return None
-    import survey
     if not survey.is_repo(ROOT):
         said = answered_question(ev, "git-init")
         if said is None:

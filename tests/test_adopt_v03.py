@@ -74,6 +74,9 @@ class FirstReply(Folder):
         action, _ = self.next()
         self.assertEqual(action[0], "kickoff")
         self.assertIn("a timer", action[1])
+        self.cli("log", "charter.proposed", "--summary", "c")
+        self.cli("approve", "charter", "--quote", "ok")
+        self.assertEqual(self.next()[0][0], "git-init")  # cycles need branches, and nothing of theirs is here
 
     def test_files_without_git_ask_first_and_git_only_on_yes(self):
         self.write("plan.docx")
