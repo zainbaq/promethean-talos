@@ -203,7 +203,7 @@ def main() -> None:
     else:
         print(".gitattributes: kept (yours)")
     gi = target / ".gitignore"
-    wanted = ["__pycache__/", "*.pyc", ".pytest_cache/", ".venv/", ".claude/worktrees/", ".claude/settings.local.json", "company/.context/"]
+    wanted = ["__pycache__/", "*.pyc", ".pytest_cache/", ".venv/", ".claude/worktrees/", ".claude/settings.local.json", "company/.context/", ".talos/pids"]
     existing = gi.read_text(encoding="utf-8").splitlines() if gi.exists() else []
     missing = [w for w in wanted if w not in existing]
     if missing:

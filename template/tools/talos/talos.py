@@ -30,6 +30,9 @@ Commands:
     journal [--date YYYY-MM-DD]  render ledger to company/journal/
     consolidate                  rebuild knowledge/INDEX.md and flag duplicates
     viz [--host H --port P ...]  serve the visualizer (opt-in: stamp with init.py --viz)
+    handback ITEM --role R --text T   file a hand-back the moment it arrives (company/handbacks/)
+    pid add|done|list [PID]      the processes the company started; the only ones it may kill
+    doctor                       check this machine has what the company needs
 
 Set TALOS_ACTOR (or pass --actor) so events carry the role that made them.
 """
@@ -63,6 +66,7 @@ EVENT_TYPES = {
     "cycle.started", "cycle.ended", "retro.completed",
     "spec.amended", "environment.updated", "followup.raised", "run.completed",
     "design.proposed", "design.approved", "design-waiver.approved", "note",
+    "run.stopped", "verify.blocked", "handback.received",
 }
 
 ITEM_STATUSES = ["proposed", "ready", "assigned", "in_progress", "blocked",
@@ -71,6 +75,8 @@ ITEM_STATUSES = ["proposed", "ready", "assigned", "in_progress", "blocked",
 TIERS = {"executive", "review", "execution", "mechanical", "ceo", "unknown"}
 
 RISKS = ["low", "normal", "high"]
+
+ROLE_TOKEN_WARN = 5_000_000  # the report flags any role past this in one cycle
 
 # Planning depth scales with the project (charter frontmatter `size`, set with `talos size`).
 # spec_lines: lint budget outside code blocks. plan_turns: the launcher's turn cap for the plan phase.
@@ -602,6 +608,10 @@ def cmd_cycle(args) -> None:
     if args.action == "start":
         if st.get("cycle_open"):
             die(f"cycle {st['cycle']} is still open; end it first")
+        unreleased = [i["id"] for i in load_items() if i.get("status") == "verified"]
+        if unreleased and not args.stack:
+            die(f"verified but not released: {', '.join(unreleased)}. Get the CEO's release decision first: "
+                "branches stacked across cycles cost rebases. --stack overrides, on the CEO's word only.")
         st["cycle"] = st.get("cycle", 0) + 1
         st["cycle_open"] = True
         st["budget"] = args.budget or ""
@@ -1022,6 +1032,166 @@ def cmd_status(args) -> None:
     print("\n## Last 10 events\n")
     for e in ev[-10:]:
         print(f"- `{e['ts']}` {e['actor']} · {e['event']} · {e.get('ref') or ''} — {e.get('summary', '')}")
+    step, phases = next_step(st, ev, items, fm, len(ceo_q))
+    print(f"\n## Next step\n\n{step}" + phase_cost(ev, phases))
+
+
+def pending_stop(ev: list[dict] | None = None) -> dict | None:
+    """The last run.stopped event, unless the same phase has finished since."""
+    stop = None
+    for e in (read_ledger() if ev is None else ev):
+        if e["event"] == "run.stopped":
+            stop = e
+        elif stop and e["event"] == "run.completed" and e.get("ref") == stop.get("ref"):
+            stop = None  # a stopped rerun logs run.stopped straight after, which sets it again
+    return stop
+
+
+def next_step(st: dict, ev: list[dict], items: list[dict], fm: dict, ceo_questions: int) -> tuple[str, list[str]]:
+    """(what to do next, the phases it runs, for the cost estimate), from the record alone."""
+    review = 'Tell the company your decision: `tools/talos/run review "<your words>"`'
+    stop = pending_stop(ev)
+    if stop:
+        return f"Continue the stopped {stop['ref']} phase: `tools/talos/run resume`", [stop["ref"]]
+    if ceo_questions:
+        return f"Answer {ceo_questions} open question{'s' if ceo_questions > 1 else ''}. {review}", ["review"]
+    if fm.get("status") != "approved":
+        if latest(ev, "charter.proposed"):
+            return f"Approve or change the charter. {review}", ["review"]
+        return "Start the project: `tools/talos/run kickoff company/brief.md`", ["kickoff"]
+    if not latest(ev, "plan.approved"):
+        if latest(ev, "plan.proposed"):
+            return f"Approve or change the plan. {review}", ["review"]
+        return "Plan the project: `tools/talos/run plan`", ["plan"]
+    if st.get("cycle_open"):
+        return "Finish the open cycle: `tools/talos/run cycle-verify`, then `tools/talos/run cycle-close`", ["cycle-verify", "cycle-close"]
+    verified = [i["id"] for i in items if i.get("status") == "verified"]
+    if verified:
+        return f"Decide the release of {', '.join(verified)}. {review}", ["review"]
+    ended, retro = latest(ev, "cycle.ended"), latest(ev, "retro.completed")
+    if ended and (not retro or retro["ts"] < ended["ts"]):
+        return "Run the retrospective: `tools/talos/run retro`", ["retro"]
+    if any(i.get("status") == "ready" for i in items):
+        return "Run a cycle: `tools/talos/run cycle`", ["cycle-build", "cycle-verify", "cycle-close"]
+    return "Nothing is ready. Ask for the next piece of work, or re-plan: `tools/talos/run plan`", ["plan"]
+
+
+def phase_cost(ev: list[dict], phases: list[str]) -> str:
+    """The estimate for those phases: this project's own average per run. Blank until each has run once."""
+    total = 0.0
+    for ph in phases:
+        costs = [e["cost_usd"] for e in ev if e["event"] == "run.completed" and e.get("phase") == ph and isinstance(e.get("cost_usd"), (int, float))]
+        if not costs:
+            return ""
+        total += sum(costs) / len(costs)
+    return f" (about ${total:.2f}, from this project's runs)"
+
+
+def heavy_role_lines(cycle: int) -> list[str]:
+    U, recs, why = load_usage(cycle)
+    if why:
+        return []
+    heavy = [g for g in U.summarize(recs, lambda r: r["role"]) if g["total"] > ROLE_TOKEN_WARN]
+    if not heavy:
+        return []
+    return ["", "## Heavy roles", "", f"_Past {ROLE_TOKEN_WARN // 1_000_000}M tokens this cycle: check what they re-read._", ""] + [
+        f"- {g['key']}: {U.millions(g['total'])}M tokens in {g['calls']} calls" for g in heavy]
+
+
+def cmd_handback(args) -> None:
+    """Hand-backs reach the record as they arrive, so a phase cut off later loses none of them."""
+    ensure_scaffold()
+    folder = CO / "handbacks"
+    folder.mkdir(exist_ok=True)
+    stamp = now().replace(":", "").replace("-", "")
+    path = folder / f"{args.item_id}-{stamp}-{slug(args.role)}.md"
+    write_lf(path, args.text.rstrip() + "\n")
+    append_event("handback.received", actor=args.actor, tier=args.tier, ref=args.item_id,
+                 summary=f"from {args.role}: {path.name}", extra={"item": args.item_id})
+    print(path.relative_to(ROOT).as_posix())
+
+
+def pid_file() -> Path:
+    return ROOT / ".talos" / "pids"
+
+
+def cmd_pid(args) -> None:
+    path = pid_file()
+    pids = path.read_text(encoding="utf-8").split() if path.exists() else []
+    if args.action == "list":
+        print("\n".join(pids) or "none")
+        return
+    if not (args.pid or "").isdigit():
+        die("give a numeric PID")
+    pids = [p for p in pids if p != args.pid] + ([args.pid] if args.action == "add" else [])
+    path.parent.mkdir(exist_ok=True)
+    write_lf(path, "\n".join(pids) + ("\n" if pids else ""))
+    print("\n".join(pids) or "none")
+
+
+def _found(name: str) -> str | None:
+    import shutil
+    return shutil.which(name)
+
+
+def _runs(*cmd: str) -> str | None:
+    """The first line a command prints, or None when it does not run."""
+    try:
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=30, encoding="utf-8", errors="replace")
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return (p.stdout.strip().splitlines() or [""])[0] if p.returncode == 0 else None
+
+
+def _trust_accepted(root: Path) -> bool | None:
+    """Whether Claude Code has been opened here and its trust dialog accepted. None when that cannot be read."""
+    try:
+        projects = json.loads((Path.home() / ".claude.json").read_text(encoding="utf-8")).get("projects", {})
+    except (OSError, ValueError, AttributeError):
+        return None
+    want = str(root.resolve()).replace("\\", "/").lower()
+    for key, val in projects.items():
+        if str(key).replace("\\", "/").lower() == want and isinstance(val, dict):
+            return bool(val.get("hasTrustDialogAccepted"))
+    return False
+
+
+def cmd_doctor(args) -> None:
+    fails = 0
+
+    def line(state: str, what: str, how: str = "") -> None:
+        nonlocal fails
+        fails += state == "FAIL"
+        print(f"{state:4}  {what}" + (f": {how}" if how else ""))
+
+    fallback = Path.home() / ".local" / "bin" / ("claude.exe" if os.name == "nt" else "claude")
+    if _found("claude"):
+        line("ok", "Claude Code", _runs(_found("claude"), "--version") or "found")
+    elif fallback.exists():
+        line("WARN", "Claude Code is installed but not on PATH here", "the launcher finds it, but long-running processes may not; add its folder to PATH")
+    else:
+        line("FAIL", "Claude Code not found", "install it from https://claude.com/claude-code")
+    line("ok", "git", _runs("git", "--version")) if _found("git") else line("FAIL", "git not found", "install git")
+    if _found("git") and not _runs("git", "config", "user.email"):
+        line("WARN", "git has no user.email", "commits will fail: git config user.email you@example.com")
+    line("ok", "uv", _runs("uv", "--version")) if _found("uv") else line("WARN", "uv not found", "needed to create the project's .venv: https://docs.astral.sh/uv/")
+    py = sys.version_info
+    line("ok" if py >= (3, 8) else "FAIL", f"Python {py.major}.{py.minor}", sys.executable)
+    trust = _trust_accepted(ROOT)
+    if trust is None:
+        line("WARN", "could not read Claude Code's trust settings", "open `claude` in this folder once if permissions are ignored")
+    elif trust:
+        line("ok", "trust dialog accepted for this folder")
+    else:
+        line("WARN", "trust dialog not accepted for this folder", "the project's permissions are ignored until you open `claude` here once")
+    wants_docker = any("docker" in (CO / f).read_text(encoding="utf-8", errors="replace").lower()
+                       for f in ("charter.md", "environment.md") if (CO / f).exists())
+    if wants_docker:
+        if _runs("docker", "info", "--format", "{{.ServerVersion}}"):
+            line("ok", "Docker is running")
+        else:
+            line("FAIL", "the project uses Docker and it is not running", "start Docker Desktop")
+    sys.exit(1 if fails else 0)
 
 
 def cmd_report(args) -> None:
@@ -1049,7 +1219,7 @@ def cmd_report(args) -> None:
     other_q = [e for r, e in sorted(asked.items()) if r not in answered and r not in open_ceo]
     if other_q:
         lines += ["", "_Open for other roles (no action from you):_ " + ", ".join(f"{e['ref']} ({e.get('audience')})" for e in other_q)]
-    lines += ["", "## Ready to merge (verified by QA)", ""]
+    lines += ["", "## Ready to merge (verified by QA)", "", "_Say \"release\" and these merge right away; the next cycle cannot start until you decide._", ""]
     for r in refs("item.verified"):
         it = items.get(r, {})
         lines.append(f"- {r} {it.get('title', '')} — branch `{it.get('branch') or '?'}`" + (f" @ `{it['commit']}`" if it.get("commit") else ""))
@@ -1078,6 +1248,7 @@ def cmd_report(args) -> None:
     lines += [f"- {e['summary']}" for e in ev if e["event"] == "budget.consumed"] or ["- _no budget.consumed events logged_"]
     lines += ["", "## Spend (measured from transcripts)", ""]
     lines += spend_lines(cycle)
+    lines += heavy_role_lines(cycle)
     write_lf(name, "\n".join(lines) + "\n", encoding="utf-8")
     print(name.relative_to(ROOT).as_posix())
 
@@ -1163,7 +1334,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--confidence", default="medium", choices=["low", "medium", "high"])
     s.set_defaults(fn=cmd_lesson_add)
 
-    s = sub.add_parser("cycle"); common(s); s.add_argument("action", choices=["start", "end"]); s.add_argument("--budget"); s.add_argument("--summary"); s.set_defaults(fn=cmd_cycle)
+    s = sub.add_parser("cycle"); common(s); s.add_argument("action", choices=["start", "end"]); s.add_argument("--budget"); s.add_argument("--summary"); s.add_argument("--stack", action="store_true", help="start although verified items are unreleased (the CEO's word only)"); s.set_defaults(fn=cmd_cycle)
 
     s = sub.add_parser("approve"); s.add_argument("what", choices=["charter", "plan", "release", "design", "design-waiver"]); s.add_argument("--ref"); s.add_argument("--quote", required=True)
     s.set_defaults(fn=cmd_approve)
@@ -1182,6 +1353,9 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--json", action="store_true")
     s.set_defaults(fn=cmd_usage)
     s = sub.add_parser("report"); s.add_argument("--cycle", type=int); s.set_defaults(fn=cmd_report)
+    s = sub.add_parser("handback", help="file a hand-back as it arrives"); common(s); s.add_argument("item_id"); s.add_argument("--role", required=True); s.add_argument("--text", required=True); s.set_defaults(fn=cmd_handback)
+    s = sub.add_parser("pid", help="the processes the company started; the only ones it may kill"); s.add_argument("action", choices=["add", "done", "list"]); s.add_argument("pid", nargs="?"); s.set_defaults(fn=cmd_pid)
+    s = sub.add_parser("doctor", help="check this machine has what the company needs"); s.set_defaults(fn=cmd_doctor)
     s = sub.add_parser("journal"); s.add_argument("--date"); s.set_defaults(fn=cmd_journal)
     s = sub.add_parser("consolidate"); s.set_defaults(fn=cmd_consolidate)
     s = sub.add_parser("viz", help="serve the visualizer for this project (opt-in: init.py --viz); "

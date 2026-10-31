@@ -17,7 +17,7 @@ All writes go through the CLI so entries are validated and logged:
 ```
 TALOS_ACTOR=<role> TALOS_TIER=<executive|review|execution|mechanical> tools/talos/talos <command>
 ```
-Read `tools/talos/talos --help`. Never hand-edit `ledger.jsonl` or `state.json`; a hook blocks it. Agents running in worktrees never write to `company/`; they hand back and the Chief of Staff logs.
+Read `tools/talos/talos --help`. Never hand-edit `ledger.jsonl` or `state.json`; a hook blocks it. The same hook blocks killing any process the company did not start: record each one with `talos pid add <pid>`, and never kill by name or port. Agents running in worktrees never write to `company/`; they hand back and the Chief of Staff logs.
 
 ### Gates (the CEO approves, in their own words)
 1. Charter (`talos gate charter`) before planning.
@@ -28,7 +28,7 @@ Read `tools/talos/talos --help`. Never hand-edit `ledger.jsonl` or `state.json`;
 ### Procedures (skills)
 `/talos-kickoff` brief → charter · `/talos-plan` charter → ADRs, specs, backlog, test strategy · `/talos-cycle` run one cycle · `/talos-review` record CEO decisions · `/talos-retro` lessons · `/talos-status` dashboard · `/talos-consolidate` knowledge upkeep.
 
-**Run phases through the launcher, in the background:** `tools/talos/run kickoff|plan|review|cycle|cycle-build|cycle-verify|cycle-close|retro|status [text]`. Each phase gets a fresh session with lean flags (about 19k tokens of fixed context instead of about 57k), the right model for the phase, and a `run.completed` ledger event with its cost. Running a skill inline in a long conversation re-reads that whole conversation on every call.
+**Run phases through the launcher, in the background:** `tools/talos/run kickoff|plan|review|cycle|cycle-build|cycle-verify|cycle-close|retro|status|resume [text]`. Each phase gets a fresh session with lean flags (about 19k tokens of fixed context instead of about 57k), the right model for the phase, and a `run.completed` ledger event with its cost. Running a skill inline in a long conversation re-reads that whole conversation on every call.
 
 Inside a phase, subagents run in the foreground: a headless phase ends when the main turn ends, and background agents are cut off.
 

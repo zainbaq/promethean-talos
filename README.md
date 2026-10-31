@@ -25,13 +25,15 @@ Agents are good at executing precise instructions and bad at guessing. Most "AI 
 
 ## Quick start
 
-Requirements: Claude Code, git, and [`uv`](https://docs.astral.sh/uv/) (`winget install astral-sh.uv` on Windows). Nothing else: at kickoff the company creates a per-project `.venv` with `uv`, which downloads its own Python, so no project depends on Anaconda, a system interpreter, or anything else on the machine. The record CLI itself runs on that venv (any Python 3.8+ is enough to run `init.py` once).
+Requirements: Claude Code, git, and [`uv`](https://docs.astral.sh/uv/) (`winget install astral-sh.uv` on Windows). Nothing else: at kickoff the company creates a per-project `.venv` with `uv`, which downloads its own Python, so no project depends on Anaconda, a system interpreter, or anything else on the machine. The record CLI itself runs on that venv (`uv run` finds its own Python for `init.py`).
 
 ```bash
 git clone https://github.com/zainbaq/promethean-talos
-python promethean-talos/init.py /path/to/your/project --brief my-brief.md --teams core,design
-cd /path/to/your/project && tools/talos/run kickoff company/brief.md
+uv run promethean-talos/init.py /path/to/your/project --brief my-brief.md --teams core,design
+cd /path/to/your/project && tools/talos/talos doctor && tools/talos/run kickoff company/brief.md
 ```
+
+In cmd or PowerShell on Windows, use `tools\talos\talos.cmd` and `tools\talos\run.cmd`. If a run stops on a usage limit, `tools/talos/run resume` continues it. `tools/talos/talos status` always ends with the next step.
 
 `--teams` staffs only the teams the project needs (`core` always; `research`, `design` when the work calls for them; see `tools/talos/teams.json`). Unstaffed roles are not stamped and cost nothing.
 

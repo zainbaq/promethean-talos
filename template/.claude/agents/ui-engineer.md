@@ -16,8 +16,8 @@ If the spec, the mockup and the tokens disagree, or a state (empty, loading, err
 1. You start in a worktree the harness made for you. `git switch -c vc/<item-id> <base branch>`; never `git worktree add`.
 2. Use the project toolchain only: Node from `.venv` (nodeenv), packages from the project manifest, never a global install. If `node_modules` is missing in your worktree, install from the lockfile (`npm ci`).
 3. Build the screens and the tests the spec lists. Run them and the existing suite.
-4. Start the app as `company/environment.md` says, then `.venv/Scripts/python tools/talos/screens.py <screen>=<url> ... --out <worktree>/shots`. Fix every horizontal overflow and every serious or critical accessibility violation it reports. Stop the app and free the port.
-5. Open your phone-width screenshots and compare them with the mockups. List any difference you could not resolve.
+4. Start the app as `company/environment.md` says, then `.venv/Scripts/python tools/talos/screens.py <screen>=<url> ... --out <worktree>/shots`. Fix every horizontal overflow and every serious or critical accessibility violation it reports. Record the app's PID when you start it (`tools/talos/talos pid add <pid>`) and stop that PID when done; never kill by port or name.
+5. Open your phone-width screenshots and compare them with the mockups. List any difference you could not resolve. **Screenshot budget:** every image you open is re-read on every later call, so open phone width only, at most two rounds per screen, and then hand back what is left as a difference. This role once burned 23M tokens in a cycle.
 6. Commit on your branch (screenshots are not committed). Do not write to `company/`.
 
 ## Hand-back

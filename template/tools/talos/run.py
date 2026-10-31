@@ -16,6 +16,7 @@ Phases:
     cycle          the three cycle phases in order; stops at the first failure
     retro          /talos-retro     sonnet   candidates mined on Sonnet, accepted by the Fable Learning Officer
     status         /talos-status    haiku
+    resume         continue the last phase that stopped (the rest of the cycle too, if it was a cycle phase)
 
 Why: one long session re-reads its whole history on every call. In the linkboard run
 the main session averaged 106k tokens per call and was 55% of all tokens; a fresh
@@ -24,7 +25,9 @@ context from about 57k to about 19k tokens (measured 2026-10-26) by skipping use
 MCP servers, plugins and unused built-in tools. Project agents, skills and hooks still load.
 
 Each run logs a `run.completed` ledger event with the session id, turns, cost and
-token usage reported by Claude Code, and prints the session's final message.
+token usage reported by Claude Code, and prints the session's final message. A run that
+did not finish also logs `run.stopped` with the reason, and any uncommitted worktree work
+is saved to a wip/ branch.
 Standard library only.
 """
 from __future__ import annotations
@@ -100,6 +103,24 @@ def command(phase: str, text: str, model: str | None, turns: int | None) -> list
             "--max-turns", str(turns or default_turns), "--output-format", "json", *LEAN]
 
 
+def load_talos():
+    sys.path.insert(0, str(HERE))
+    import talos  # noqa: E402  (same directory)
+    talos.ROOT, talos.CO = ROOT, ROOT / "company"
+    talos.LEDGER, talos.STATE, talos.QUESTIONS = talos.CO / "ledger.jsonl", talos.CO / "state.json", talos.CO / "questions.md"
+    return talos
+
+
+def log_event(event: str, phase: str, summary: str, extra: dict | None = None) -> None:
+    os.environ.update(TALOS_ACTOR="talos-run", TALOS_TIER="mechanical", TALOS_ROOT=str(ROOT))
+    try:
+        load_talos().append_event(event, ref=phase, summary=summary, extra=extra)
+    except SystemExit:
+        pass
+    except Exception as e:  # logging must never hide the run's result
+        print(f"talos run: could not log {event} ({e})", file=sys.stderr)
+
+
 def log_run(phase: str, model: str, res: dict) -> None:
     u = res.get("usage") or {}
     summary = (f"{phase} on {model}: {res.get('subtype', '?')}, {res.get('num_turns', '?')} turns, "
@@ -107,18 +128,50 @@ def log_run(phase: str, model: str, res: dict) -> None:
     extra = {"phase": phase, "model": model, "session": res.get("session_id"), "turns": res.get("num_turns"),
              "cost_usd": res.get("total_cost_usd"), "is_error": res.get("is_error"),
              "usage": {k: u.get(k) for k in ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "output_tokens")}}
-    env = dict(os.environ, TALOS_ACTOR="talos-run", TALOS_TIER="mechanical", TALOS_ROOT=str(ROOT))
-    sys.path.insert(0, str(HERE))
-    try:
-        import talos  # noqa: E402  (same directory)
-        talos.ROOT, talos.CO = ROOT, ROOT / "company"
-        talos.LEDGER, talos.STATE, talos.QUESTIONS = talos.CO / "ledger.jsonl", talos.CO / "state.json", talos.CO / "questions.md"
-        os.environ.update(env)
-        talos.append_event("run.completed", ref=phase, summary=summary, extra=extra)
-    except SystemExit:
-        pass
-    except Exception as e:  # logging must never hide the run's result
-        print(f"talos run: could not log run.completed ({e})", file=sys.stderr)
+    log_event("run.completed", phase, summary, extra)
+
+
+LIMIT_WORDS = ("out of usage credits", "usage limit", "rate limit reached", "credit balance is too low", "hit your limit")
+
+
+def stop_reason(res: dict) -> str | None:
+    """Why the session did not finish, in words; None when it says it did. Never reports "success" as a stop."""
+    text = str(res.get("result") or "")
+    if any(k in text.lower() for k in LIMIT_WORDS):
+        return "usage limit reached (the phase did not finish; `tools/talos/run resume` continues it when usage is available)"
+    subtype = res.get("subtype")
+    if subtype == "error_max_turns":
+        return f"turn cap reached after {res.get('num_turns', '?')} turns; `tools/talos/run resume` continues it"
+    if res.get("is_error") or subtype != "success":
+        first = text.strip().splitlines()[0][:200] if text.strip() else ""
+        said = first or (subtype if subtype and subtype != "success" else "no reason given")
+        return f"the session ended with an error: {said}"
+    return None
+
+
+def git(*args: str, cwd=None) -> subprocess.CompletedProcess:
+    return subprocess.run(["git", *args], cwd=cwd or ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace")
+
+
+def save_worktrees() -> list[str]:
+    """Commit each dirty worktree's work to a wip/ branch, leaving the worktree exactly as it was. Deletes nothing."""
+    listed = git("worktree", "list", "--porcelain")
+    paths = [l[len("worktree "):] for l in listed.stdout.splitlines() if l.startswith("worktree ")][1:]
+    saved = []
+    for path in paths:
+        if not git("status", "--porcelain", cwd=path).stdout.strip():
+            continue
+        name = "wip/" + Path(path).name
+        git("add", "-A", cwd=path)
+        tree = git("write-tree", cwd=path).stdout.strip()
+        head = git("rev-parse", "HEAD", cwd=path).stdout.strip()
+        commit = git("commit-tree", tree, "-p", head, "-m", "wip: saved by the launcher when a phase stopped", cwd=path).stdout.strip()
+        git("reset", "-q", cwd=path)  # unstage only; the working files stay
+        if commit and not git("branch", "-f", name, commit, cwd=path).returncode:
+            saved.append(f"{name} ({path})")
+        else:
+            print(f"talos run: could not save the work in {path}; it is still there, uncommitted", file=sys.stderr)
+    return saved
 
 
 # The ledger event each phase must leave behind. A session can end "successfully" without
@@ -128,7 +181,7 @@ PROOF = {
     "kickoff": ({"charter.proposed", "question.asked"}, "no charter.proposed or question.asked"),
     "plan": ({"plan.proposed", "question.asked"}, "no plan.proposed or question.asked"),
     "cycle-build": ({"item.completed", "item.blocked", "question.asked"}, "no item completed or blocked"),
-    "cycle-verify": ({"item.verified", "item.rejected", "review.changes_requested", "question.asked"}, "no item verified or rejected"),
+    "cycle-verify": ({"item.verified", "verify.blocked"}, "no item verified and no verify.blocked"),
     "cycle-close": ({"cycle.ended"}, "the cycle was not ended (no cycle.ended)"),
     "retro": ({"retro.completed"}, "no retro.completed"),
 }
@@ -161,7 +214,31 @@ def proof_missing(phase: str, before: int) -> str | None:
     return None
 
 
+def close_refused() -> str | None:
+    """Close reports on what verify proved, so it does not run when verify proved nothing."""
+    try:
+        cycle = json.loads((ROOT / "company" / "state.json").read_text(encoding="utf-8")).get("cycle", 0)
+        events = [json.loads(l) for l in open(ROOT / "company" / "ledger.jsonl", encoding="utf-8") if l.strip()]
+    except (OSError, ValueError):
+        return None
+    if any(e.get("cycle") == cycle and e.get("event") in ("item.verified", "item.blocked", "verify.blocked") for e in events):
+        return None
+    return f"nothing is verified or blocked in cycle {cycle}; run `tools/talos/run cycle-verify` first"
+
+
+def stopped(phase: str, reason: str) -> int:
+    saved = save_worktrees()
+    note = f"; uncommitted work saved to {', '.join(saved)}" if saved else ""
+    log_event("run.stopped", phase, reason + note)
+    print(f"\ntalos run: {phase} STOPPED: {reason}{note}")
+    return 1
+
+
 def run_phase(phase: str, text: str, model: str | None, turns: int | None, dry: bool) -> int:
+    if phase == "cycle-close" and not dry:
+        refused = close_refused()
+        if refused:
+            return stopped(phase, refused)
     cmd = command(phase, text, model, turns)
     used_model = cmd[cmd.index("--model") + 1]
     if dry:
@@ -176,28 +253,43 @@ def run_phase(phase: str, text: str, model: str | None, turns: int | None, dry: 
     except ValueError:
         res = {}
     if not res:
-        print(raw or p.stderr.strip() or f"no output (exit {p.returncode})")
-        return p.returncode or 1
+        said = raw or p.stderr.strip() or f"no output (exit {p.returncode})"
+        print(said)
+        return stopped(phase, f"the session gave no result: {said[:200]}")
     print(res.get("result") or "")
-    text = str(res.get("result") or "").lower()
-    limit = any(k in text for k in ("out of usage credits", "usage limit", "rate limit reached", "credit balance is too low"))
-    ok = not res.get("is_error") and res.get("subtype") == "success" and not limit
-    if limit:
-        res["subtype"] = "usage limit reached (the phase did not finish; rerun it when usage is available)"
-    elif ok:
+    reason = stop_reason(res)
+    if not reason:
         missing = proof_missing(phase, before)
         if missing:
-            ok = False
-            res["subtype"] = f"phase did not finish: {missing}; rerun `tools/talos/run {phase}`"
+            reason = f"phase did not finish: {missing}; `tools/talos/run resume` continues it"
     log_run(phase, used_model, res)
-    print(f"\ntalos run: {phase} {'finished' if ok else 'STOPPED: ' + str(res.get('subtype'))}; "
-          f"{res.get('num_turns')} turns, ${res.get('total_cost_usd', 0):.2f}, session {res.get('session_id')}")
-    return 0 if ok else 1
+    print(f"\ntalos run: {phase} {res.get('num_turns')} turns, ${res.get('total_cost_usd', 0):.2f}, session {res.get('session_id')}")
+    if reason:
+        return stopped(phase, reason)
+    print(f"talos run: {phase} finished")
+    return 0
+
+
+def resume_plan(extra: str) -> tuple[list[str], str] | None:
+    """(phases to run, text for the first) for the last stopped phase; None when nothing is stopped."""
+    stop = load_talos().pending_stop()
+    if not stop:
+        return None
+    phase = stop["ref"]
+    saved = save_worktrees()
+    wip = [l.strip(" *+") for l in git("branch", "--list", "wip/*").stdout.splitlines()]
+    trees = [l[len("worktree "):] for l in git("worktree", "list", "--porcelain").stdout.splitlines() if l.startswith("worktree ")][1:]
+    note = (f"Resume: an earlier run of this phase stopped ({stop.get('summary', '')}). Do not redo finished work: "
+            "read company/handbacks/ and `talos status --brief`, and pick up only what has no hand-back. "
+            f"Worktrees still there: {', '.join(trees) or 'none'}. Work saved on branches: {', '.join(wip) or 'none'}. {extra}").strip()
+    if saved:
+        print(f"talos run: saved uncommitted work to {', '.join(saved)}")
+    return (CYCLE[CYCLE.index(phase):] if phase in CYCLE else [phase]), note
 
 
 def main() -> int:
     args = sys.argv[1:]
-    if not args or args[0] in ("-h", "--help") or (args[0] not in PHASES and args[0] != "cycle"):
+    if not args or args[0] in ("-h", "--help") or (args[0] not in PHASES and args[0] not in ("cycle", "resume")):
         print(__doc__)
         return 0 if args and args[0] in ("-h", "--help") else 2
     phase, rest = args[0], args[1:]
@@ -217,9 +309,17 @@ def main() -> int:
             i += 1
     if not (ROOT / "company").exists():
         sys.exit("talos run: run from the project root (no company/ here)")
-    phases = CYCLE if phase == "cycle" else [phase]
-    for ph in phases:
-        rc = run_phase(ph, " ".join(text), model, turns, dry)
+    words = " ".join(text)
+    if phase == "resume":
+        plan = resume_plan(words)
+        if plan is None:
+            print("talos run: nothing to resume; no phase is stopped")
+            return 0
+        phases, words = plan
+    else:
+        phases = CYCLE if phase == "cycle" else [phase]
+    for i, ph in enumerate(phases):
+        rc = run_phase(ph, words if i == 0 or phase != "resume" else "", model, turns, dry)
         if rc:
             return rc
     return 0
