@@ -17,7 +17,7 @@ All writes go through the CLI so entries are validated and logged:
 ```
 TALOS_ACTOR=<role> TALOS_TIER=<executive|review|execution|mechanical> tools/talos/talos <command>
 ```
-Read `tools/talos/talos --help`. Never hand-edit `ledger.jsonl` or `state.json`; a hook blocks it. All work happens in worktrees and branches: never edit project files in the main checkout, and never touch a dirty working tree. In an adopted project, follow `company/knowledge/conventions.md` and do not reorganize, reformat or migrate unless asked. The same hook blocks killing any process the company did not start: record each one with `talos pid add <pid>`, and never kill by name or port. Agents running in worktrees never write to `company/`; they hand back and the Chief of Staff logs.
+Read `tools/talos/talos --help`. Never hand-edit `ledger.jsonl` or `state.json`; a hook blocks it. All work happens in worktrees and branches: never edit project files in the main checkout, and never touch a dirty working tree. In an adopted project, follow `company/knowledge/conventions.md` and do not reorganize, reformat or migrate unless asked. In an adopted project, never run a test suite with the network on until `company/knowledge/debt.md` and `company/baseline.md` say it is safe: use `tools/talos/talos baseline --check --where <worktree>`, which blocks the network and strips credentials. A suite can talk to real servers. The same hook blocks killing any process the company did not start: record each one with `talos pid add <pid>`, and never kill by name or port. Agents running in worktrees never write to `company/`; they hand back and the Chief of Staff logs.
 
 ### Gates (the CEO approves, in their own words)
 1. Charter (`talos gate charter`) before planning.

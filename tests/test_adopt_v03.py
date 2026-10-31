@@ -152,6 +152,47 @@ class LeavesItAlone(Folder):
         self.assertIn("test_new", p.stderr)
 
 
+class NoNetwork(Folder):
+    def test_the_baseline_cannot_reach_out_or_see_credentials(self):
+        self.make_repo()
+        server = "https://prod.real-company.co"
+        self.write("tests/test_live.py", (
+            "import os, socket, urllib.request\n"
+            f"URL = '{server}/register'\n"
+            "def test_writes_to_production():\n"
+            "    urllib.request.urlopen(URL, data=b'x', timeout=2)\n"
+            "def test_localhost_too():\n"
+            "    socket.create_connection(('127.0.0.1', 9), timeout=2)\n"
+            "def test_no_credentials():\n"
+            "    assert 'OPENAI_API_KEY' not in os.environ and 'MY_SECRET_TOKEN' not in os.environ\n"
+            "    assert os.environ.get('PATH')\n"))
+        self.git("add", "-A")
+        self.git("commit", "-qm", "live test")
+        self.stamp()
+        self.assertIn("prod.real-company.co", self.cli("start"))
+        self.env.update(OPENAI_API_KEY="sk-real", MY_SECRET_TOKEN="real")
+        summary = self.cli("baseline")
+        known = json.loads((self.root / "company/baseline.json").read_text(encoding="utf-8"))
+        self.assertEqual(known["network"], "blocked", summary)
+        self.assertIn("prod.real-company.co", known["blocked_hosts"])
+        self.assertIn("127.0.0.1", known["blocked_hosts"])
+        self.assertIn("tests/test_live.py::test_writes_to_production", known["failures"])
+        self.assertIn("tests/test_live.py::test_localhost_too", known["failures"])
+        self.assertNotIn("tests/test_live.py::test_no_credentials", known["failures"])
+        self.assertIn("nothing reached a real server", (self.root / "company/baseline.md").read_text(encoding="utf-8"))
+
+    def test_a_runner_that_cannot_be_blocked_is_not_run(self):
+        self.write("package.json", json.dumps({"scripts": {"test": "node -e \"require('fs').writeFileSync('ran.txt','x')\""}}))
+        self.git("init", "-q")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "first")
+        self.stamp()
+        self.cli("start")
+        self.assertIn("no baseline", self.cli("baseline"))
+        self.assertFalse((self.root / "ran.txt").exists())
+        self.assertIn("network blocked", (self.root / "company/baseline.md").read_text(encoding="utf-8"))
+
+
 class Adoption(Folder):
     def test_runner_goes_survey_baseline_read_gate_then_waits_for_work(self):
         self.make_repo()

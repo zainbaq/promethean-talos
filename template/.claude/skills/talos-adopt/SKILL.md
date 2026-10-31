@@ -33,7 +33,7 @@ The survey is done: `company/knowledge/inventory.json` is the map and `company/b
 6. **Your final message**, one screen for a phone: what this project is, who it is for, what state it is in, the three biggest risks, what the baseline says, and that the five questions and the approval are waiting.
 
 ## Do not
+- Run the test suite or the app, here or in any subagent. The baseline ran it with the network blocked; a suite may talk to real servers. If tests or scripts can reach a live host, that is the first risk in your summary.
 - Create backlog items, specs or a plan. The CEO asks for work after the gate.
-- Run the app or the tests. The baseline did that.
 - Approve anything. Only the CEO's words open the gate.
 - Quote a secret. Name its path and line.

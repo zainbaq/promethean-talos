@@ -4,6 +4,9 @@
 The inventory bounds everything after it: the company reads this map, not the whole folder. The baseline records which tests
 passed before the company arrived, so failures that were already there are never blamed on it. The baseline runs in a temporary
 detached worktree, so the developer's checkout is not touched, even when it is dirty.
+
+A test suite is code nobody here has read, and it can talk to real servers. So a baseline never runs a suite with the network on: pytest
+runs under talos_nonet with credentials stripped from its environment, and a runner that cannot be sandboxed that way does not run at all.
 """
 from __future__ import annotations
 
@@ -41,6 +44,9 @@ SIZES = ((5_000, 100, "small"), (50_000, 1_000, "medium"))
 # What reading a folder costs, by size: the estimate shown first, and the hard cap on the understanding phase.
 COST = {"small": {"low": 2, "high": 5, "cap": 6}, "medium": {"low": 6, "high": 12, "cap": 15}, "large": {"low": 12, "high": 25, "cap": 30}}
 BASELINE_TIMEOUT = 600
+SECRET_NAME = re.compile(r"KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|AWS_|AZURE_|GCP_|GOOGLE_|OPENAI|ANTHROPIC|DATABASE_URL|_DSN|_URL$", re.I)
+REMOTE_URL = re.compile(r"""https?://([A-Za-z0-9.-]+\.[A-Za-z]{2,})""")
+EXAMPLE_HOSTS = re.compile(r"(^|\.)(example\.(com|org|net)|test|invalid|localhost)$", re.I)
 
 
 def _git(root: Path, *args: str, timeout: int = 60) -> subprocess.CompletedProcess | None:
@@ -153,9 +159,26 @@ def inventory(root: Path) -> dict:
         "test_files": sum(1 for f in files if TEST_FILE.search(f)), "test_commands": test_commands(files, root),
         "todo_fixme": todos, "docs": sorted(f for f in files if DOCS.search(f))[:40], "material": dict(material),
     }
+    out["hosts_in_tests"] = hosts_in_tests(root, files)
     out["git"] = _git_facts(root) if out["kind"] == "repo" else None
     out["cost"] = COST[out["size"]]
     return out
+
+
+def hosts_in_tests(root: Path, files: list[str]) -> list[dict]:
+    """Real hostnames named in test files. A test that names one may well talk to it."""
+    found: dict = {}
+    for rel in files:
+        if not TEST_FILE.search(rel) or Path(rel).suffix.lower() not in LANGUAGES:
+            continue
+        try:
+            text = (root / rel).read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for host in REMOTE_URL.findall(text):
+            if not EXAMPLE_HOSTS.search(host):
+                found.setdefault(host, set()).add(rel)
+    return [{"host": h, "files": sorted(fs)[:5]} for h, fs in sorted(found.items())]
 
 
 def _git_facts(root: Path) -> dict:
@@ -209,26 +232,33 @@ def install_python_deps(root: Path, where: Path) -> str:
     return "dependencies installed" if p.returncode == 0 else "dependencies did not install: " + (p.stderr.strip().splitlines() or ["?"])[-1][:200]
 
 
+def clean_env(extra: dict | None = None) -> dict:
+    """The environment a suite gets: no credentials, no service addresses."""
+    env = {k: v for k, v in os.environ.items() if not SECRET_NAME.search(k)}
+    env.update(CI="1", PYTHONUTF8="1", **(extra or {}))
+    return env
+
+
 def run_tests(root: Path, where: Path, candidate: dict, timeout: int = BASELINE_TIMEOUT) -> dict:
+    """Run the suite with the network blocked. A runner the block cannot cover is not run; nobody has checked what it talks to."""
     runner = candidate["runner"]
-    if runner == "pytest":
-        cmd = [_python(root), "-m", "pytest", "-q", "--tb=no", "-rfE", "-p", "no:cacheprovider"]
-    else:
-        cmd = candidate["command"].split()
-        resolved = shutil.which(cmd[0])
-        if not resolved:
-            return {"ran": False, "why": f"{cmd[0]} is not installed on this machine"}
-        cmd[0] = resolved
-    env = dict(os.environ, CI="1", PYTHONUTF8="1")
+    if runner != "pytest":
+        return {"ran": False, "why": f"`{candidate['command']}` can't be run with the network blocked, so it was not run. A suite can talk to real servers, and nobody has checked this one"}
+    here = Path(__file__).resolve().parent
+    blocked_log = root / ".talos" / "nonet.log"
+    blocked_log.parent.mkdir(exist_ok=True)
+    blocked_log.write_text("", encoding="utf-8")
+    cmd = [_python(root), "-m", "pytest", "-q", "--tb=no", "-rfE", "-p", "no:cacheprovider", "-p", "talos_nonet"]
+    env = clean_env({"TALOS_NONET_LOG": str(blocked_log), "PYTHONPATH": str(here)})
     try:
         p = subprocess.run(cmd, cwd=where, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout, env=env, stdin=subprocess.DEVNULL)
     except subprocess.TimeoutExpired:
         return {"ran": False, "why": f"the suite did not finish in {timeout} s"}
     except OSError as e:
         return {"ran": False, "why": str(e)}
-    out = {"ran": True, "exit": p.returncode, "command": candidate["command"]}
-    if runner == "pytest":
-        out.update(parse_pytest(p.stdout))
+    out = {"ran": True, "exit": p.returncode, "command": candidate["command"], "network": "blocked"}
+    out["blocked_hosts"] = sorted(set(blocked_log.read_text(encoding="utf-8").split()))
+    out.update(parse_pytest(p.stdout))
     return out
 
 
@@ -238,6 +268,8 @@ def baseline(root: Path, inv: dict) -> dict:
     commands = inv.get("test_commands") or []
     if not commands:
         return {"ran": False, "why": "no test suite found"}
+    if not commands[0]["runner"] == "pytest":
+        return run_tests(root, root, commands[0])
     if not has_commits(root):
         return {"ran": False, "why": "no commits yet"}
     wt = root / ".claude" / "worktrees" / "talos-baseline"
@@ -270,6 +302,7 @@ def report(b: dict) -> str:
     else:
         lines += [f"The suite exited {b.get('exit')}. This runner gives no per-test result, so only the exit code can be compared.", ""]
     lines += ["**The rule: never regress this.** The failures below were here before the company arrived. They are known failures, not the company's to blame and not to be fixed unasked. Any other failure is a regression. `tools/talos/talos baseline --check` compares.", ""]
+    lines += [f"The suite ran with the network blocked and credentials removed, so nothing reached a real server. Tests that needed the network fail here and count as known. Connections refused: {', '.join(f'`{h}`' for h in b.get('blocked_hosts') or []) or 'none'}.", ""]
     lines += ["## Known failures", ""] + ([f"- `{f}`" for f in b.get("failures") or []] or ["_none_"])
     return "\n".join(lines) + "\n"
 
@@ -280,6 +313,9 @@ def first_reply(inv: dict) -> str:
     if inv["code_files"]:
         langs = ", ".join(list(inv["languages"])[:3])
         seen = f"{inv['files']} files, about {inv['lines']:,} lines of {langs} ({inv['size']}), {inv['test_files']} test files"
+        hosts = [h["host"] for h in inv.get("hosts_in_tests") or []]
+        if hosts:
+            seen += f". The tests name {', '.join(hosts[:3])}, so the test run will have the network blocked"
     else:
         seen = f"{inv['files']} files: {kinds}"
     return seen
