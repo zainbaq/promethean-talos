@@ -243,6 +243,7 @@ def gates(ledger: list[dict], state: dict, items: list[dict]) -> list[dict]:
         })
 
     proposed_gate("understanding", "Understanding")
+    proposed_gate("launch", "Launch")
     proposed_gate("charter", "Charter")
     proposed_gate("plan", "Plan")
     teams = (state or {}).get("teams") or []

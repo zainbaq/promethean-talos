@@ -48,6 +48,10 @@ Say "approved" (or what should change) at each gate; `tools/talos/run review "<y
 
 ### The visualizer (optional)
 
+Once it is employed, ask for anything: `tools/talos/talos say --text "add CSV export"`, then `tools/talos/talos work`. Triage answers it or picks a route and says the cost first. Marketing and launch work needs `--teams core,gtm`; those roles draft and you send.
+
+In a repo you want left alone, stamp with `--protect main`. The company then never changes `main`: its files and all approved work go on a local `talos/work` branch, and only you merge from there. `tools/talos/talos protect main --off` lifts the rule.
+
 Projects are headless by default. If you would rather watch the company work, stamp with `--viz` (or re-run `init.py <project> --viz` on an existing project) and start it from the project root:
 
 ```bash

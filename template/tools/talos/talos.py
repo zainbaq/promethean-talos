@@ -42,6 +42,12 @@ Commands:
     start                        look at this folder and say what happens first
     survey                       map this folder (no model): company/knowledge/inventory.json
     baseline [--check]           record which tests pass, or compare against that record
+    test [--where DIR]           run the tests with the network blocked and no credentials
+    protect [BRANCH] [--off]     branches the company may never change; its work then goes on talos/work
+    base [--worktree]            the branch work starts from and releases merge into
+    triage MSG --route R         say what a CEO message became and queue the work
+    queue                        the asks waiting to run
+    drift [--seen]               files changed outside the company since it last read them
 
 Set TALOS_ACTOR (or pass --actor) so events carry the role that made them.
 """
@@ -82,6 +88,8 @@ EVENT_TYPES = {
     "charter.rejected", "plan.rejected", "design.rejected", "release.rejected",
     "survey.completed", "baseline.recorded", "git.initialized",
     "understanding.proposed", "understanding.approved", "understanding.rejected",
+    "branch.protected", "branch.unprotected", "ask.routed", "drift.seen",
+    "launch.proposed", "launch.approved", "launch.rejected",
 }
 
 ITEM_STATUSES = ["proposed", "ready", "assigned", "in_progress", "blocked",
@@ -101,13 +109,37 @@ PRESETS = {
 }
 DEFAULT_PRESET = "medium"
 ROLE_KINDS = {
-    "executive": ["chief-of-staff", "head-of-product", "chief-architect", "head-of-research", "head-of-qa", "learning-officer", "head-of-design"],
+    "executive": ["chief-of-staff", "head-of-product", "chief-architect", "head-of-research", "head-of-qa", "learning-officer", "head-of-design", "head-of-gtm", "head-of-productization"],
     "review": ["code-reviewer", "security-reviewer"],
     "mechanical": ["librarian"],
-    "execution": ["engineer", "ui-engineer", "test-engineer", "design-qa", "research-analyst", "ux-designer", "devops-engineer", "technical-writer", "codebase-analyst"],
+    "execution": ["engineer", "ui-engineer", "test-engineer", "design-qa", "research-analyst", "ux-designer", "devops-engineer", "technical-writer", "codebase-analyst", "gtm-analyst"],
 }
 BECAME = ["correction", "item", "lesson", "note", "answer"]
 RUNNER_WORDS = ("pause", "resume", "stop")
+
+WORK_BRANCH = "talos/work"
+# Who runs a department's work, and which team stamps that role.
+DEPARTMENTS = {
+    "gtm": ("head-of-gtm", "gtm"),
+    "productization": ("head-of-productization", "productization"),
+    "research": ("head-of-research", "research"),
+    "docs": ("technical-writer", "core"),
+}
+ROUTES = {
+    "answer": "Answered",
+    "fast": "Fast lane",
+    "item": "Item",
+    "initiative": "Initiative",
+    "design": "Design revision",
+    "dept": "Department",
+}
+ROUTE_GATES = {
+    "fast": "you'll approve one branch",
+    "item": "you'll approve one branch",
+    "initiative": "you'll approve a plan, then each release",
+    "design": "you'll approve the revised design",
+    "dept": "a draft comes to you; nothing is sent",
+}
 
 # Planning depth scales with the project (charter frontmatter `size`, set with `talos size`).
 # spec_lines: lint budget outside code blocks. plan_turns: the launcher's turn cap for the plan phase.
@@ -348,6 +380,8 @@ def cmd_init(args) -> None:
 
 def cmd_log(args) -> None:
     ensure_scaffold()
+    if args.event in ("item.completed", "item.verified", "item.rejected"):  # a bare event leaves the item's status behind and carries no evidence
+        die(f"use `talos item set {args.ref or 'ITEM-xxxx'} --status {args.event.split('.')[1]} --evidence ...`: the status and the evidence go together")
     rec = append_event(args.event, actor=args.actor, tier=args.tier, ref=args.ref,
                        summary=args.summary or "", evidence=args.evidence, branch=args.branch)
     print(rec["id"])
@@ -478,6 +512,7 @@ def cmd_item_set(args) -> None:
             fm[k] = v
             changed.append(f"{k}={v}")
     if args.acceptance:
+        body = body.replace("- [ ] _TBD_\n", "")
         marker = "## Evidence"
         new_lines = "".join(f"- [ ] {a}\n" for a in args.acceptance)
         if marker in body:
@@ -679,6 +714,10 @@ def cmd_approve(args) -> None:
                       summary=args.quote, extra={"recorded_by": os.environ.get("TALOS_ACTOR", "unknown")})
     if args.what == "understanding":
         adopt_charter(ev)
+    if args.what == "launch":
+        open_lines = readiness_open()
+        if open_lines is None or open_lines:
+            print(f"talos: recorded, but the checklist still has {len(open_lines or [])} open lines", file=sys.stderr)
     if args.what == "charter":
         p = CO / "charter.md"
         fm, body = parse_frontmatter(p.read_text(encoding="utf-8"))
@@ -697,14 +736,28 @@ def adopt_charter(approved: dict) -> None:
         if e["event"] == "question.answered" and e.get("actor") == "ceo":
             asked = latest(read_ledger(), "question.asked", e.get("ref"))
             answers.append(f"- **{(asked or {}).get('summary', e.get('ref'))}** {e.get('summary', '')}")
+    answers += [f"- **The CEO said:** {m['text']}" for m in unacked_messages()]
     if answers:
-        body = body.rstrip("\n") + "\n\n## What the CEO told us\n\n" + "\n".join(answers) + "\n"
+        body = re.sub(r"^## Not known\n.*?(?=^## |\Z)", "", body, flags=re.S | re.M)  # the questions below replace it
+        told = "## What the CEO told us\n\nWhere this differs from anything below, the CEO's words win.\n\n" + "\n".join(answers) + "\n\n"
+        heading = re.search(r"^# .*\n", body, re.M)
+        at = heading.end() if heading else 0
+        body = body[:at] + "\n" + told + body[at:].lstrip("\n")
     size = "medium"
     try:
         size = json.loads((CO / "knowledge" / "inventory.json").read_text(encoding="utf-8")).get("size", size)
     except (OSError, ValueError):
         pass
     write_lf(CO / "charter.md", f"---\nstatus: approved\napproved_event: {approved['id']}\nsize: {size}\nsource: adopted\n---\n\n" + body, encoding="utf-8")
+
+
+def readiness_open() -> list[str] | None:
+    """The checklist lines still open; None when there is no checklist."""
+    try:
+        text = (CO / "launch" / "readiness.md").read_text(encoding="utf-8")
+    except OSError:
+        return None
+    return [l.strip() for l in text.splitlines() if re.match(r"\s*- \[ \]", l)]
 
 
 def latest(events: list[dict], kind: str, ref: str | None = None) -> dict | None:
@@ -737,6 +790,17 @@ def cmd_gate(args) -> None:
         if not approved or (proposed and ev.index(approved) < ev.index(proposed)):  # ledger order, not 1-second timestamps
             die("GATE CLOSED: design direction and key screens not approved by CEO since last proposal", 1)
         print(f"gate open: design approved at {approved['ts']} ({approved['id']})")
+    elif args.what == "launch":
+        open_lines = readiness_open()
+        if open_lines is None:
+            die("GATE CLOSED: no readiness checklist at company/launch/readiness.md", 1)
+        if open_lines:
+            die(f"GATE CLOSED: {len(open_lines)} readiness lines are open:\n" + "\n".join(f"  {l}" for l in open_lines), 1)
+        proposed = latest(ev, "launch.proposed")
+        approved = latest(ev, "launch.approved")
+        if not approved or (proposed and ev.index(approved) < ev.index(proposed)):
+            die("GATE CLOSED: launch not approved by CEO since last proposal", 1)
+        print(f"gate open: launch approved at {approved['ts']} ({approved['id']})")
     elif args.what == "release":
         approved = latest(ev, "release.approved", args.ref)
         if not approved:
@@ -765,7 +829,7 @@ def status_brief(st: dict, ev: list[dict]) -> None:
     print(f"talos: cycle {st.get('cycle', 0)} {'open' if st.get('cycle_open') else 'closed'} | charter {fm.get('status', 'draft')} | "
           f"plan {'approved' if plan else 'not approved'} | environment {'probed' if env_ok else 'NOT probed'} | size {project_size()} | teams {','.join(st.get('teams') or ['all'])}")
     print("items: " + (" | ".join(f"{s} {', '.join(by[s])}" for s in ITEM_STATUSES if s in by) or "none"))
-    print("CEO questions open: " + (", ".join(open_ceo_questions()) or "none"))
+    print("CEO questions open: " + (", ".join(open_ceo_questions()) or "none") + (f" | base branch {base_branch(st)}, never change {', '.join(st['protected'])}" if st.get("protected") else ""))
     for e in ev[-3:]:
         print(f"last: {e['ts'][5:16]} {e['actor']} {e['event']} {e.get('ref') or ''}".rstrip())
 
@@ -1120,6 +1184,11 @@ def next_step(st: dict, ev: list[dict], items: list[dict], fm: dict, ceo_questio
         return f"Answer {ceo_questions} open question{'s' if ceo_questions > 1 else ''}. {review}", ["review"]
     if st.get("adopt") and not latest(ev, "understanding.approved"):
         return "Let the company finish learning this folder: `tools/talos/talos work`", ["adopt"]
+    verified = [i["id"] for i in items if i.get("status") == "verified"]
+    if verified:
+        return f"Decide the release of {', '.join(verified)}. {review}", ["review"]
+    if any(i.get("route") and i.get("status") == "ready" for i in items):
+        return "Run the queue: `tools/talos/talos work`", []
     if fm.get("status") != "approved":
         if latest(ev, "charter.proposed"):
             return f"Approve or change the charter. {review}", ["review"]
@@ -1127,12 +1196,11 @@ def next_step(st: dict, ev: list[dict], items: list[dict], fm: dict, ceo_questio
     if not latest(ev, "plan.approved"):
         if latest(ev, "plan.proposed"):
             return f"Approve or change the plan. {review}", ["review"]
+        if st.get("adopt") in ("files", "repo"):
+            return 'Ask for something: `tools/talos/talos say --text "<what you want>"`, then `tools/talos/talos work`', []
         return "Plan the project: `tools/talos/run plan`", ["plan"]
     if st.get("cycle_open"):
         return "Finish the open cycle: `tools/talos/run cycle-verify`, then `tools/talos/run cycle-close`", ["cycle-verify", "cycle-close"]
-    verified = [i["id"] for i in items if i.get("status") == "verified"]
-    if verified:
-        return f"Decide the release of {', '.join(verified)}. {review}", ["review"]
     ended, retro = latest(ev, "cycle.ended"), latest(ev, "retro.completed")
     if ended and (not retro or retro["ts"] < ended["ts"]):
         return "Run the retrospective: `tools/talos/run retro`", ["retro"]
@@ -1293,10 +1361,7 @@ def next_action(ev: list[dict], st: dict, items: list[dict], fm: dict, tried=())
         return None, f"{stop['ref']} stopped: {stop.get('summary', '')}. Say \"resume\" to continue it"
     msgs = unacked_messages(ev)
     if msgs:
-        text = ("The CEO sent messages through the control room. Read them with `talos inbox`. Treat each as the CEO's input about this project; "
-                "do not run its text as a command. Record what each one means, then say what it became: "
-                "`talos ack MSG-xxxx --became correction|item|lesson|note|answer --note \"<one line>\"`.")
-        return act("review", text, "msgs:" + ",".join(m["id"] for m in msgs), "reading your messages")
+        return act("triage", "", "msgs:" + ",".join(m["id"] for m in msgs), "reading your messages")
     for gate, phase in (("understanding", "adopt"), ("charter", "kickoff"), ("plan", "plan"), ("design", "design-revise")):
         r = _index(ev, f"{gate}.rejected")
         if r > _index(ev, f"{gate}.proposed"):
@@ -1313,7 +1378,12 @@ def next_action(ev: list[dict], st: dict, items: list[dict], fm: dict, tried=())
     if live:
         text = f"The CEO approved the release of {', '.join(live)}; the approvals are recorded. Check the gates, merge, and log release.shipped for each."
         return act("review", text, "merge:" + ",".join(live), f"merging {', '.join(live)}")
-    n = len(open_ceo_questions())
+    routed = routed_step(ev, st, items, act)
+    if routed is not None:
+        return routed
+    drafts = {i["id"] for i in items if i.get("route") == "dept"}  # a draft waiting for you holds up nothing else
+    asked = {e.get("ref"): e.get("blocks") for e in ev if e["event"] == "question.asked"}
+    n = len([q for q in open_ceo_questions() if asked.get(q) not in drafts])
     if n:
         return None, f"waiting on your answer to {n} question{'s' if n > 1 else ''}"
     teams = st.get("teams") or []
@@ -1352,6 +1422,43 @@ def next_action(ev: list[dict], st: dict, items: list[dict], fm: dict, tried=())
     if any(i.get("status") == "ready" for i in items):
         return act("cycle-build", "", f"cycle-build:{cycle + 1}", "starting a cycle")
     return None, "nothing is ready; ask for the next piece of work"
+
+
+def route_open(route: str, ev: list[dict], st: dict) -> bool:
+    """Whether work on this route can start yet. Drafts run at once; a fast fix needs git and a survey; the rest rely on the company's picture being right."""
+    import survey
+    if route == "dept":
+        return True
+    if not survey.is_repo(ROOT):
+        return False
+    adopting = st.get("adopt") in ("files", "repo")
+    if route == "fast":
+        return bool(latest(ev, "baseline.recorded")) if adopting else bool(latest(ev, "charter.approved"))
+    return bool(latest(ev, "understanding.approved")) if adopting else bool(latest(ev, "charter.approved"))
+
+
+def routed_step(ev: list[dict], st: dict, items: list[dict], act):
+    """The next queued ask that can run now, or None. Asks wait for an open cycle to finish, not for gates or other asks' releases."""
+    if st.get("cycle_open"):
+        return None
+    for it in queued(items):
+        if not route_open(it["route"], ev, st):
+            continue
+        iid, words = it["id"], it.get("title", "")
+        done = f"When it is proposed, run `talos item set {iid} --status in_progress --summary \"proposed\"`."
+        step = {
+            "fast": ("task", iid),
+            "item": ("task", iid),
+            "dept": ("department", iid),
+            "design": ("design-revise", f"{words} ({iid}). {done}"),
+            "initiative": ("plan", f"Initiative {iid}: {words}. Scope the plan to this initiative only. {done}"),
+        }[it["route"]]
+        return act(step[0], step[1], f"route:{iid}", f"{ROUTES[it['route']].lower()}: {iid}")
+    return None
+
+
+def queued(items: list[dict]) -> list[dict]:
+    return sorted((i for i in items if i.get("route") and i.get("status") == "ready"), key=lambda i: (i.get("priority") or "P2", i["id"]))
 
 
 def answered_question(ev: list[dict], blocks: str) -> str | None:
@@ -1417,6 +1524,10 @@ def run_survey() -> dict:
     inv = survey.inventory(ROOT)
     (CO / "knowledge").mkdir(exist_ok=True)
     write_lf(CO / "knowledge" / "inventory.json", json.dumps(inv, indent=1) + "\n")
+    if survey.is_repo(ROOT):
+        st = read_state()
+        st["seen"] = git_out("rev-parse", "HEAD")
+        write_state(st)
     append_event("survey.completed", actor="talos-run", tier="mechanical", ref="company/knowledge/inventory.json",
                  summary=f"{survey.first_reply(inv)}; size {inv['size']}")
     return inv
@@ -1466,6 +1577,236 @@ def cmd_baseline(args) -> None:
     if new:
         die("REGRESSION against the baseline:\n" + "\n".join(f"  {f}" for f in new))
     print(f"no regressions against the baseline ({now_.get('passed', '?')} passed, {now_.get('failed', '?')} failed, all known)")
+
+
+def cmd_test(args) -> None:
+    """The only way to run an adopted project's tests when they name real hosts."""
+    ensure_scaffold()
+    import survey
+    try:
+        inv = json.loads((CO / "knowledge" / "inventory.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        inv = run_survey()
+    commands = inv.get("test_commands") or []
+    if not commands:
+        die("no test command found in this folder")
+    r = survey.run_tests(ROOT, Path(args.where).resolve(), commands[0])
+    if not r.get("ran"):
+        die(f"the suite did not run: {r.get('why')}")
+    print(f"{r.get('passed', '?')} passed, {r.get('failed', '?')} failed, {r.get('errors', '?')} errors (network blocked, no credentials)")
+    for f in r.get("failures") or []:
+        print(f"  {f}")
+    for h in r.get("blocked_hosts") or []:
+        print(f"  blocked a connection to {h}")
+    sys.exit(0 if r.get("exit") == 0 else 1)
+
+
+def git_out(*args: str, cwd=None) -> str:
+    try:
+        p = subprocess.run(["git", *args], cwd=cwd or ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return p.stdout.strip() if p.returncode == 0 else ""
+
+
+def base_branch(st: dict | None = None) -> str:
+    st = read_state() if st is None else st
+    return st.get("base") or git_out("symbolic-ref", "--short", "-q", "HEAD") or "main"
+
+
+def work_tree(st: dict | None = None) -> Path:
+    """Where a release merges. A work branch gets its own worktree, so the developer's checkout stays as it was."""
+    st = read_state() if st is None else st
+    if not st.get("base"):
+        return ROOT
+    path = ROOT / ".talos" / "work"
+    if not (path / ".git").exists():
+        p = subprocess.run(["git", "worktree", "add", str(path), st["base"]], cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace")
+        if p.returncode != 0:
+            die(f"could not check out {st['base']}: {p.stderr.strip()}")
+    return path
+
+
+PROTECT_HOOK = """#!/bin/sh
+# Installed by `talos protect`. It stops the company, not the developer: Claude Code sets CLAUDECODE in its shells.
+[ -n "$CLAUDECODE" ] || exit 0
+list="$(git rev-parse --git-common-dir)/talos-protected"
+[ -f "$list" ] || exit 0
+if [ "$(basename "$0")" = pre-push ]; then
+  while read -r _ _ remote_ref _; do
+    b=${remote_ref#refs/heads/}
+    if grep -qxF "$b" "$list"; then echo "talos: $b is protected; the CEO lifts this with talos protect $b --off" >&2; exit 1; fi
+  done
+  exit 0
+fi
+b=$(git symbolic-ref --short -q HEAD) || exit 0
+grep -qxF "$b" "$list" || exit 0
+echo "talos: $b is protected; work on a branch from $(git config talos.base || echo talos/work)" >&2
+exit 1
+"""
+
+
+def install_protect_hooks(names: list[str]) -> str:
+    """Local git hooks, as a second line behind the session guard. Someone else's hook is left alone."""
+    common = Path(git_out("rev-parse", "--git-common-dir"))
+    common = common if common.is_absolute() else ROOT / common
+    write_lf(common / "talos-protected", "\n".join(names) + "\n")
+    if git_out("config", "core.hooksPath"):
+        return "git hooks not installed (this repo sets core.hooksPath); the session guard still applies"
+    kept = []
+    for name in ("pre-commit", "pre-merge-commit", "pre-push"):
+        hook = common / "hooks" / name
+        if hook.exists() and "talos protect" not in hook.read_text(encoding="utf-8", errors="replace"):
+            kept.append(name)
+            continue
+        hook.parent.mkdir(exist_ok=True)
+        write_lf(hook, PROTECT_HOOK)
+        hook.chmod(hook.stat().st_mode | 0o111)
+    return f"git hooks installed, except your own {', '.join(kept)}" if kept else "git hooks installed"
+
+
+def cmd_protect(args) -> None:
+    ensure_scaffold()
+    st = read_state()
+    names = list(st.get("protected") or [])
+    if not args.branch:
+        print(f"base branch: {base_branch(st)}\nnever change: {', '.join(names) or 'nothing set'}")
+        return
+    if args.off:
+        if args.branch in names:
+            names.remove(args.branch)
+            st["protected"] = names
+            if not names:
+                st.pop("base", None)
+            write_state(st)
+            install_protect_hooks(names)
+            append_event("branch.unprotected", actor="ceo", tier="ceo", ref=args.branch, summary=f"the company may change {args.branch} again")
+        print(f"{args.branch} is not protected")
+        return
+    if not git_out("rev-parse", "--verify", "-q", f"refs/heads/{args.branch}"):
+        die(f"no branch named {args.branch} here")
+    if args.branch not in names:
+        names.append(args.branch)
+    was = base_branch(st)
+    st["protected"] = names
+    if was in names:
+        if not git_out("rev-parse", "--verify", "-q", f"refs/heads/{WORK_BRANCH}"):
+            p = subprocess.run(["git", "branch", WORK_BRANCH, was], cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace")
+            if p.returncode != 0:
+                die(f"could not create {WORK_BRANCH}: {p.stderr.strip()}")
+        st["base"] = WORK_BRANCH
+    write_state(st)
+    hooks = install_protect_hooks(names)
+    append_event("branch.protected", actor=args.actor or "ceo", tier=args.tier or "ceo", ref=args.branch,
+                 summary=f"the company will never change {args.branch}; work goes on {base_branch(st)}")
+    print(f"{args.branch} is protected. Work and approved releases go on {base_branch(st)}, and only you merge from there. {hooks}.")
+
+
+def cmd_base(args) -> None:
+    ensure_scaffold()
+    print(work_tree() if args.worktree else base_branch())
+
+
+def drift_files(st: dict) -> list[str]:
+    """Files changed on the developer's branch since the company last read them, leaving out what the company itself built."""
+    seen = st.get("seen")
+    theirs = (st.get("protected") or [None])[0] or base_branch(st)
+    if not seen or not git_out("rev-parse", "--verify", "-q", seen):
+        return []
+    out = git_out("log", "--no-merges", "--name-only", "--format=", f"{seen}..{theirs}", "--not", "--glob=refs/heads/vc/*")
+    framework = ("company/", ".claude/", "tools/talos/", "CLAUDE.md")
+    return sorted({f for f in out.splitlines() if f and not f.startswith(framework)})
+
+
+def cmd_drift(args) -> None:
+    """With a work branch, also brings in what the developer did on theirs, so new work does not start from old code."""
+    ensure_scaffold()
+    st = read_state()
+    if args.seen:
+        st["seen"] = git_out("rev-parse", (st.get("protected") or ["HEAD"])[0])
+        write_state(st)
+        append_event("drift.seen", actor=args.actor, tier=args.tier, summary=f"read up to {st['seen'][:9]}")
+        print(st["seen"])
+        return
+    files = drift_files(st)
+    if files:
+        print("Changed outside the company:\n" + "\n".join(f"  {f}" for f in files))
+        print("Spawn one librarian to update these files' lines in company/knowledge/codebase.md, then run `talos drift --seen`.")
+    else:
+        print("nothing changed outside the company")
+    if st.get("base") and st.get("protected"):
+        where = work_tree(st)
+        who = [] if git_out("config", "user.email") else ["-c", "user.email=talos@localhost", "-c", "user.name=talos"]
+        p = subprocess.run(["git", *who, "merge", "--no-edit", st["protected"][0]], cwd=where, capture_output=True, text=True, encoding="utf-8", errors="replace")
+        if p.returncode != 0:
+            subprocess.run(["git", "merge", "--abort"], cwd=where, capture_output=True)
+            die(f"{st['protected'][0]} does not merge cleanly into {st['base']}: ask the CEO. {p.stdout.strip()[:200]}")
+
+
+def cmd_triage(args) -> None:
+    """Say what a CEO message became, so the first reply names the route, the cost and what they will be asked."""
+    ensure_scaffold()
+    if args.mid not in {m["id"] for m in read_inbox()}:
+        die(f"{args.mid} is not in the inbox")
+    words = next(m["text"] for m in read_inbox() if m["id"] == args.mid)
+    if args.route == "answer":
+        if not args.note:
+            die("--note is required: it is the answer")
+        append_event("message.acknowledged", actor=args.actor, tier=args.tier, ref=args.mid, summary=f"became answer: {args.note}",
+                     extra={"became": "answer", "note": args.note})
+        print(args.note)
+        return
+    if not args.title and not args.item:
+        die("--title is required")
+    dept = None
+    if args.route == "dept":
+        if args.dept not in DEPARTMENTS:
+            die(f"--dept is one of {', '.join(DEPARTMENTS)}")
+        dept = args.dept
+    lead, team = DEPARTMENTS[dept] if dept else (("head-of-design", "design") if args.route == "design" else (None, None))
+    missing = bool(lead) and not (ROOT / ".claude" / "agents" / f"{lead}.md").exists()
+    if args.item:
+        iid = args.item
+        p = item_path(iid)
+    else:
+        iid = next_id("ITEM")
+        p = CO / "backlog" / f"{iid}.md"
+        body = f"## Description\n\nThe CEO asked: {words}\n\n## Acceptance criteria\n\n- [ ] _TBD_\n\n## Evidence\n\n_none yet_\n"
+        write_lf(p, dump_frontmatter({"id": iid, "title": args.title, "status": "ready", "owner": "", "spec": "", "branch": "", "priority": args.priority or "P2",
+                                      "risk": args.risk or "normal", "cycle": read_state().get("cycle", 0), "created": now(), "updated": now()}, body))
+        append_event("item.created", actor=args.actor, tier=args.tier, ref=iid, summary=args.title)
+    fm, body = parse_frontmatter(p.read_text(encoding="utf-8"))
+    fm.update(route=args.route, updated=now())
+    if dept:
+        fm["dept"] = dept
+    if args.preset:
+        fm["preset"] = args.preset
+    if missing:
+        fm["status"] = "blocked"
+    write_lf(p, dump_frontmatter(fm, body))
+    place = dept or ("design" if args.route == "design" else "engineering")
+    reply = f"{ROUTES[args.route]}, {place}" + (f", {args.estimate}" if args.estimate else "") + f", {ROUTE_GATES[args.route]}"
+    if missing:
+        how = f"python init.py <this folder> --teams {team}"
+        reply = f"{ROUTES[args.route]}, {place}, but the {team} team isn't staffed here. From your Talos checkout run: {how}. Then answer this and it goes ahead"
+        a = build_parser().parse_args(["ask", f"{iid} needs the {team} team. From your Talos checkout run `{how}`, then say done.", "--ref", iid, "--actor", args.actor or "chief-of-staff", "--tier", args.tier or "executive"])
+        with contextlib.redirect_stdout(io.StringIO()):
+            a.fn(a)
+    if args.note:
+        reply += f". {args.note}"
+    append_event("ask.routed", actor=args.actor, tier=args.tier, ref=iid, summary=reply, extra={"route": args.route, "dept": dept, "message": args.mid})
+    append_event("message.acknowledged", actor=args.actor, tier=args.tier, ref=args.mid, summary=f"became item {iid}: {reply}",
+                 extra={"became": "item", "note": reply, "item": iid})
+    print(reply)
+
+
+def cmd_queue(args) -> None:
+    ensure_scaffold()
+    rows = queued(load_items())
+    for i in rows:
+        print(f"{i['id']} {i.get('priority', 'P2')} {i['route']}: {i.get('title', '')}")
+    if not rows:
+        print("nothing queued")
 
 
 def started(st: dict) -> bool:
@@ -1642,6 +1983,7 @@ def cmd_report(args) -> None:
             base = subprocess.run(["git", "symbolic-ref", "--short", "-q", "HEAD"], cwd=ROOT, capture_output=True, text=True, timeout=10).stdout.strip() or "?"
     except Exception:
         base = "?"
+    base = read_state().get("base") or base
     lines.append(f"- Repository: `{ROOT}` (base branch `{base}`). Verified work is on the branches above and is **not** on `{base}` until you approve the release.")
     lines.append("- How to run and test it: see `company/environment.md`.")
     lines += ["", "## Completed, awaiting verification", ""]
@@ -1747,10 +2089,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     s = sub.add_parser("cycle"); common(s); s.add_argument("action", choices=["start", "end"]); s.add_argument("--budget"); s.add_argument("--summary"); s.add_argument("--stack", action="store_true", help="start although verified items are unreleased (the CEO's word only)"); s.set_defaults(fn=cmd_cycle)
 
-    s = sub.add_parser("approve"); s.add_argument("what", choices=["understanding", "charter", "plan", "release", "design", "design-waiver"]); s.add_argument("--ref"); s.add_argument("--quote", required=True)
+    s = sub.add_parser("approve"); s.add_argument("what", choices=["understanding", "charter", "plan", "release", "design", "design-waiver", "launch"]); s.add_argument("--ref"); s.add_argument("--quote", required=True)
     s.set_defaults(fn=cmd_approve)
 
-    s = sub.add_parser("gate"); s.add_argument("what", choices=["charter", "plan", "design", "release", "item"]); s.add_argument("--ref"); s.set_defaults(fn=cmd_gate)
+    s = sub.add_parser("gate"); s.add_argument("what", choices=["charter", "plan", "design", "release", "item", "launch"]); s.add_argument("--ref"); s.set_defaults(fn=cmd_gate)
 
     s = sub.add_parser("status"); s.add_argument("--no-spend", action="store_true", help="skip reading transcripts (used by the session hook)")
     s.add_argument("--brief", action="store_true", help="four lines: state, items by status, CEO questions, last events"); s.set_defaults(fn=cmd_status)
@@ -1771,10 +2113,18 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("say", help="a CEO message to the company"); s.add_argument("--text", required=True); s.set_defaults(fn=cmd_say)
     s = sub.add_parser("inbox", help="CEO messages nobody has acknowledged"); s.set_defaults(fn=cmd_inbox)
     s = sub.add_parser("ack", help="say what a CEO message became"); common(s); s.add_argument("mid"); s.add_argument("--became", required=True, choices=BECAME); s.add_argument("--note", required=True); s.set_defaults(fn=cmd_ack)
-    s = sub.add_parser("reject", help="record a CEO rejection"); s.add_argument("what", choices=["understanding", "charter", "plan", "design", "release"]); s.add_argument("--ref"); s.add_argument("--reason", required=True); s.set_defaults(fn=cmd_reject)
+    s = sub.add_parser("reject", help="record a CEO rejection"); s.add_argument("what", choices=["understanding", "charter", "plan", "design", "release", "launch"]); s.add_argument("--ref"); s.add_argument("--reason", required=True); s.set_defaults(fn=cmd_reject)
     s = sub.add_parser("start", help="look at this folder and say what happens first"); s.set_defaults(fn=cmd_start)
     s = sub.add_parser("survey", help="map this folder, no model"); s.set_defaults(fn=cmd_survey)
     s = sub.add_parser("baseline", help="record which tests pass, or compare against that record"); s.add_argument("--check", action="store_true"); s.add_argument("--where", default=".", help="the checkout to test (--check)"); s.set_defaults(fn=cmd_baseline)
+    s = sub.add_parser("test", help="run the tests with the network blocked and no credentials"); s.add_argument("--where", default=".", help="the checkout to test"); s.set_defaults(fn=cmd_test)
+    s = sub.add_parser("protect", help="branches the company may never change"); common(s); s.add_argument("branch", nargs="?"); s.add_argument("--off", action="store_true", help="the CEO lifts the rule"); s.set_defaults(fn=cmd_protect)
+    s = sub.add_parser("base", help="the branch work starts from and releases merge into"); s.add_argument("--worktree", action="store_true", help="print where to run a release merge"); s.set_defaults(fn=cmd_base)
+    s = sub.add_parser("triage", help="say what a CEO message became and queue the work"); common(s); s.add_argument("mid"); s.add_argument("--route", required=True, choices=list(ROUTES))
+    s.add_argument("--title"); s.add_argument("--dept", choices=list(DEPARTMENTS)); s.add_argument("--estimate", help='for the first reply, e.g. "about $2"'); s.add_argument("--note"); s.add_argument("--item", help="an item already queued: change its route")
+    s.add_argument("--risk", choices=RISKS); s.add_argument("--priority", choices=["P0", "P1", "P2", "P3"]); s.add_argument("--preset", choices=list(PRESETS), help="this ask only"); s.set_defaults(fn=cmd_triage)
+    s = sub.add_parser("queue", help="the asks waiting to run"); s.set_defaults(fn=cmd_queue)
+    s = sub.add_parser("drift", help="files changed outside the company"); common(s); s.add_argument("--seen", action="store_true", help="the company has read up to now"); s.set_defaults(fn=cmd_drift)
     s = sub.add_parser("work", help="run the queue, waiting at gates"); s.add_argument("rest", nargs=argparse.REMAINDER); s.set_defaults(fn=cmd_work)
     s = sub.add_parser("journal"); s.add_argument("--date"); s.set_defaults(fn=cmd_journal)
     s = sub.add_parser("consolidate"); s.set_defaults(fn=cmd_consolidate)

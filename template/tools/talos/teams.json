@@ -33,5 +33,18 @@
       "ui-engineer",
       "design-qa"
     ]
+  },
+  "gtm": {
+    "description": "Marketing and go-to-market drafts: positioning, launch plans, landing copy, launch posts, release notes. They draft and the CEO sends: these roles have no shell and no way to post.",
+    "agents": [
+      "head-of-gtm",
+      "gtm-analyst"
+    ]
+  },
+  "productization": {
+    "description": "Turns a working product into one customers can use: the readiness checklist and the launch gate. Each open line becomes an item for the existing roles.",
+    "agents": [
+      "head-of-productization"
+    ]
   }
 }

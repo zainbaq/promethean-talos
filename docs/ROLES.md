@@ -16,6 +16,10 @@ Each role is a file in `template/.claude/agents/`. This page is the human-readab
 
 **Learning Officer** — Runs retros from the ledger, records one-fact lessons with evidence and `applies_to` tags, consolidates the knowledge base, and writes the pre-mortem the architect must address at plan time. Deletes vague lessons. Does no delivery work.
 
+**Head of GTM** (`gtm` team) — Who buys it and why: customer profile, positioning, pricing hypotheses, launch plan. Drafts in `company/gtm/`. No shell and no way to post; the CEO sends everything.
+
+**Head of Productization** (`productization` team) — Owns `company/launch/readiness.md` and proposes the launch gate. Release means "merge this item"; launch means "real customers may use it".
+
 ## Review tier (Opus)
 
 **Code Reviewer** — Reviews one item's diff against its spec and the repo's standards: correctness, tests, error handling, secrets, scope creep, style. Numbered findings with severity. Never edits files; the spec wins over preference.
@@ -35,6 +39,8 @@ Each role is a file in `template/.claude/agents/`. This page is the human-readab
 **DevOps Engineer** — CI, containers, environments and release mechanics exactly per spec, in a worktree. Never provisions or destroys cloud resources the spec did not name.
 
 **Technical Writer** — Documents what exists, traceable to code, specs, ADRs or ledger events, after running the commands it documents. Never documents behaviour that is not built.
+
+**GTM Analyst** (`gtm` team) — Drafts copy, launch posts, release notes and content calendars, and writes sourced competitor teardowns, from the Head of GTM's direction. No shell.
 
 ## Mechanical tier (Haiku)
 

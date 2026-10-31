@@ -75,7 +75,7 @@ class Runner(unittest.TestCase):
     def test_a_message_is_read_once_then_waits_rather_than_looping(self):
         self.cli("say", "--text", "keep it warm")
         action, _ = self.next()
-        self.assertEqual(action[0], "review")
+        self.assertEqual(action[0], "triage")
         retry, why = self.next({action[2]})
         self.assertIsNone(retry)
         self.assertIn("already tried", why)

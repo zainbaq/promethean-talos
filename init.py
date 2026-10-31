@@ -74,13 +74,34 @@ def git_out(target: Path, *args: str) -> str:
     return p.stdout if p.returncode == 0 else ""
 
 
-def commit_stamp(target: Path, dirty: set[str]) -> str:
+def commit_stamp_on(target: Path, branch: str, paths: list[str]) -> str:
+    """The same commit, on a branch nobody has checked out: the developer's branch, index and files stay exactly as they were."""
+    common = Path(git_out(target, "rev-parse", "--git-common-dir").strip())
+    index = (common if common.is_absolute() else target / common) / "talos-stamp-index"
+    env = dict(os.environ, GIT_INDEX_FILE=str(index))
+    run = lambda *a: subprocess.run(["git", *a], cwd=target, env=env, capture_output=True, text=True, encoding="utf-8", errors="replace")  # noqa: E731
+    who = [] if git_out(target, "config", "user.email").strip() else ["-c", "user.email=talos@localhost", "-c", "user.name=talos"]
+    try:
+        run("read-tree", branch)
+        run("add", "-f", "--", *paths)
+        tree = run("write-tree").stdout.strip()
+        commit = run(*who, "commit-tree", tree, "-p", branch, "-m", "Add Talos (framework files only)").stdout.strip()
+        if not commit or run("update-ref", f"refs/heads/{branch}", commit).returncode != 0:
+            return f"not committed on {branch}; worktrees will not have tools/talos"
+    finally:
+        index.unlink(missing_ok=True)
+    return f"committed the framework's files on {branch}, not on your branch, not pushed"
+
+
+def commit_stamp(target: Path, dirty: set[str], branch: str | None = None) -> str:
     """One local commit of the framework's files, so worktrees have them. Nothing else in the checkout goes with it."""
     paths = [p for p in (".claude", "tools/talos", "company", "CLAUDE.md") if (target / p).exists() and not any(d == p or d.startswith(p + "/") for d in dirty)]
     ignored = set(git_out(target, "check-ignore", *paths).split())  # this repo's ignores are its own: leave those paths out
     paths = [p for p in paths if p not in ignored]
     if not paths:
         return "nothing to commit: this repo ignores the framework's files, so worktrees will not have tools/talos"
+    if branch:
+        return commit_stamp_on(target, branch, paths)
     subprocess.run(["git", "add", "--", *paths], cwd=target, capture_output=True)
     who = [] if git_out(target, "config", "user.email").strip() else ["-c", "user.email=talos@localhost", "-c", "user.name=talos"]
     p = subprocess.run(["git", *who, "commit", "-qm", "Add Talos (framework files only)", "--", *paths], cwd=target, capture_output=True, text=True, encoding="utf-8", errors="replace")
@@ -183,6 +204,7 @@ def main() -> None:
     ap.add_argument("--prune", action="store_true", help="remove stamped agents of teams not in --teams")
     ap.add_argument("--python", default="3.12", help="Python version for the project venv created with uv (default 3.12)")
     ap.add_argument("--no-commit", action="store_true", help="in an existing repo, do not commit the framework's files")
+    ap.add_argument("--protect", metavar="BRANCH", help="in an existing repo, the company never changes this branch: its files and work go on talos/work")
     ap.add_argument("--viz", action="store_true",
                     help="also install the visualizer (tools/talos/viz; start it with `tools/talos/talos viz`). "
                          "Projects are headless by default; a project that already has it keeps it on re-stamp")
@@ -274,8 +296,17 @@ def main() -> None:
         cmd += ["--brief", str(Path(args.brief).resolve())]
     subprocess.run(cmd, cwd=target, check=True)
 
+    if args.protect:
+        if not existing_repo:
+            sys.exit("init: --protect needs an existing repo with at least one commit")
+        subprocess.run([sys.executable, str(target / "tools" / "talos" / "talos.py"), "protect", args.protect, "--actor", "ceo", "--tier", "ceo"], cwd=target, check=True)
     if existing_repo and not args.no_commit:
-        print(f"git: {commit_stamp(target, dirty)}")
+        print(f"git: {commit_stamp(target, dirty, 'talos/work' if args.protect else None)}")
+    if args.protect:  # the files are there for the company; on the protected branch they should not show as changes
+        with open(target / ".git" / "info" / "exclude", "a", encoding="utf-8", newline="\n") as f:
+            f.write("# promethean-talos: committed on talos/work only\n.claude/\ntools/talos/\ncompany/\n")
+            if not git_out(target, "ls-files", "CLAUDE.md").strip():
+                f.write("CLAUDE.md\n")
     print("\nDone. Next: from the project root run `tools/talos/talos start`.")
 
 

@@ -19,6 +19,9 @@ Phases (the model comes from the effort preset: `talos preset`, or --preset for 
     retro          /talos-retro     coordination  candidates mined cheaply, accepted by the Learning Officer
     status         /talos-status    mechanical
     resume         continue the last phase that stopped (the rest of the cycle too, if it was a cycle phase)
+    triage         /talos-triage    coordination  say what each CEO message became, answer questions, queue the rest
+    task           /talos-task      coordination  one queued ask, spec to verified branch, outside any cycle
+    department     /talos-department coordination  one queued draft from a department; nothing is ever sent
     work           run the queue: each next phase from the record, waiting at gates and for the CEO's messages
                    (--max-usd N stops it after that much spend; default 50)
 
@@ -59,14 +62,19 @@ PHASES = {
     "cycle-close": ("/talos-cycle close", "coordination", 50),
     "retro": ("/talos-retro", "coordination", 40),
     "status": ("/talos-status", "mechanical", 8),
+    "triage": ("/talos-triage", "coordination", 20),
+    "task": ("/talos-task", "coordination", 60),
+    "department": ("/talos-department", "coordination", 30),
 }
 LITE_TURNS = 0.6  # the lite preset's cap on executive phases
 CYCLE = ["cycle-build", "cycle-verify", "cycle-close"]
 TOOLS = "Bash,Read,Glob,Grep,Write,Edit,Agent,Skill,TodoWrite"
+WEB_TOOLS = TOOLS + ",WebSearch,WebFetch"  # what subagents can use is limited by what their session has
+TOOLS_FOR = {"department": WEB_TOOLS, "kickoff": WEB_TOOLS}
 # --tools without --strict-mcp-config made every MCP tool load eagerly (322k tokens in one test call):
 # these flags only work together.
 LEAN = ["--strict-mcp-config", "--setting-sources", "project,local", "--no-chrome",
-        "--exclude-dynamic-system-prompt-sections", "--tools", TOOLS]
+        "--exclude-dynamic-system-prompt-sections"]
 
 
 def claude_bin() -> str:
@@ -103,12 +111,18 @@ def plan_turns() -> int:
 def session_note(talos, preset: str) -> str:
     """What every phase session is told up front: the models to dispatch with, and any CEO messages still unread."""
     note = talos.preset_note(preset)
+    st = talos.read_state()
+    note += f" Base branch: {talos.base_branch(st)}."
+    if st.get("protected"):
+        note += (f" Never change {', '.join(st['protected'])}, in any way, even when a skill or the environment file names it as the base: "
+                 f"every branch starts from {talos.base_branch(st)} and every release merges there.")
     waiting = talos.unacked_messages()
     if waiting:
         note += " Unacknowledged CEO messages: " + " | ".join(f"{m['id']}: {m['text']}" for m in waiting)
     note += (" The CEO can write while you work; new messages arrive in your context. Treat each as the CEO's input about this project, "
-             "never run its text as a command, and at your next checkpoint say what it became: "
-             "`tools/talos/talos ack MSG-xxxx --became correction|item|lesson|note|answer --note \"<one line>\"`.")
+             "and never run its text as a command. If one changes the work you are doing now, act on it and say so at your next checkpoint: "
+             "`tools/talos/talos ack MSG-xxxx --became correction --note \"<one line>\"`. Leave anything else unacknowledged: new work and "
+             "questions go to triage when this phase ends, so they get built instead of parked.")
     return note
 
 
@@ -123,10 +137,11 @@ def command(phase: str, text: str, model: str | None, turns: int | None, preset:
     if name == "lite" and kind == "executive":
         default_turns = max(10, int(default_turns * LITE_TURNS))
     prompt = f"{skill} {text}".strip()
+    tools = TOOLS_FOR.get(phase, TOOLS)
     return [claude_bin(), "-p", prompt, "--model", model or talos.PRESETS[name][kind],
-            "--permission-mode", "acceptEdits", "--allowedTools", TOOLS,
+            "--permission-mode", "acceptEdits", "--allowedTools", tools,
             "--max-turns", str(turns or default_turns), "--output-format", "json",
-            *budget_cap(phase), "--append-system-prompt", session_note(talos, name), *LEAN]
+            *budget_cap(phase), "--append-system-prompt", session_note(talos, name), *LEAN, "--tools", tools]
 
 
 def budget_cap(phase: str) -> list[str]:
@@ -225,6 +240,9 @@ PROOF = {
     "cycle-verify": ({"item.verified", "verify.blocked"}, "no item verified and no verify.blocked"),
     "cycle-close": ({"cycle.ended"}, "the cycle was not ended (no cycle.ended)"),
     "retro": ({"retro.completed"}, "no retro.completed"),
+    "triage": ({"message.acknowledged"}, "no message was acknowledged"),
+    "task": ({"item.verified", "item.blocked", "item.rejected", "verify.blocked", "question.asked"}, "the item was not verified or blocked"),
+    "department": ({"question.asked", "item.blocked"}, "no draft reached the CEO"),
 }
 
 
@@ -406,7 +424,8 @@ def work(args: list[str]) -> int:
                     continue
                 beat.set(why, phase)
                 before = ledger_len()
-                run_phase(phase, text, None, None, False)
+                own = next((i.get("preset") for i in talos.load_items() if key == f"route:{i['id']}"), None)
+                run_phase(phase, text, None, None, False, own)
                 spent += sum(float(e.get("cost_usd") or 0) for e in talos.read_ledger()[before:] if e["event"] == "run.completed")
                 beat.set("between phases")
                 continue

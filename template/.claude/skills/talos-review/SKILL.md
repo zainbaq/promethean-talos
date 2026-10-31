@@ -14,7 +14,7 @@ You are running the REVIEW procedure as the Chief of Staff. Set `TALOS_ACTOR=chi
 
 The CEO said: $ARGUMENTS
 
-CEO messages from the control room also land here: when `talos inbox` lists any, deal with each as the arguments say and end with `talos ack`.
+CEO messages from the control room go through `/talos-triage`, not here. If this names a CEO rule about a branch ("never touch main"), record it: `talos protect <branch>`.
 
 ## Steps
 
@@ -23,7 +23,7 @@ CEO messages from the control room also land here: when `talos inbox` lists any,
 2. For each decision in the CEO's words:
    - An answer to a question: `talos answer Q-xxxx "<their words>"`. If the question blocked an item, `talos item set ITEM-xxxx --status ready --summary "unblocked by Q-xxxx"`.
    - Charter or plan approval: `talos approve charter|plan --quote "<their exact words>"`.
-   - Release approval for specific items: `talos approve release --ref ITEM-xxxx --quote "<their exact words>"` per item. Then merge right away: `talos gate release --ref ITEM-xxxx` and `talos gate item --ref ITEM-xxxx` must both pass, merge the branch, and log `release.shipped`. The checkout belongs to the developer: if `git status --porcelain` shows changes outside `company/`, do not merge, stash or reset; tell the CEO what is in the way. Approved branches never wait for a later cycle.
+   - Release approval for specific items: `talos approve release --ref ITEM-xxxx --quote "<their exact words>"` per item. Then merge right away: `talos gate release --ref ITEM-xxxx` and `talos gate item --ref ITEM-xxxx` must both pass, then merge where `talos base --worktree` says: `git -C "<that path>" merge --no-ff --no-edit <branch>`, and log `release.shipped`. If that path is the developer's checkout and `git status --porcelain` shows changes outside `company/`, do not merge, stash or reset; tell the CEO what is in the way. A branch from `talos protect` is never merged into: when the base is a work branch, say in your confirmation that the work is on it and only the CEO merges further. Approved branches never wait for a later cycle.
    - A rejection or change request: log `talos log note --ref <thing> --summary "CEO: <words>"` and create or re-open the backlog items the change requires via `head-of-product` if scope changed, or `chief-architect` if the design changed.
 
 3. Confirm back to the CEO in two lines what was recorded and what will happen next (`tools/talos/run plan`, `cycle` or `retro`).

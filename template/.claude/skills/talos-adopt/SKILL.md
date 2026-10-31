@@ -28,7 +28,7 @@ The survey is done: `company/knowledge/inventory.json` is the map and `company/b
    - `company/knowledge/debt.md`: debt and risks, each one a candidate item, none of them created yet.
    - Recovered decisions: `talos decision add --title "Recovered: <choice>" --status recovered`. They were found, not decided.
    **Every claim cites `path:line` or a commit. An uncited claim goes on the question list instead.**
-4. **Five questions.** From what the code could not say: audience, priorities, what is off-limits, and the two biggest unknowns. One `talos ask --for ceo --ref understanding "<question>"` each; at most five, plain and answerable on a phone. Skip what the code already answered.
+4. **Five questions.** From what the code could not say: audience, priorities, what is off-limits, and the two biggest unknowns. One `talos ask --for ceo --ref understanding "<question>"` each; at most five, plain and answerable on a phone. **Each asks one thing**: a person on a phone answers "Yes" to "is it live, who uses it and is there real data?", and two of the three are lost. One of the five is whether approved work may merge into their main branch or must stay off it. Skip what the code already answered.
 5. **Propose.** `talos log understanding.proposed --summary "<what this is, in one sentence>; <the biggest risk>"`.
 6. **Your final message**, one screen for a phone: what this project is, who it is for, what state it is in, the three biggest risks, what the baseline says, and that the five questions and the approval are waiting.
 

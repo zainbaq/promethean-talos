@@ -7,12 +7,15 @@ Blocks (exit 2 with a reason on stderr):
   - destructive git: force push, hard reset, history rewrite, deleting main/master
   - rm -rf of / or the home directory
   - killing a process the company did not start (only PIDs in .talos/pids; never by name or port)
+  - changing a branch the CEO protected (`talos protect`), or lifting that rule
+  - running a test suite directly when the survey found real hosts in the tests (use `talos test`)
 
 Everything else is allowed (exit 0, no output). Standard library only.
 """
 import json
 import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -51,7 +54,7 @@ def kill_problem(cmd: str, payload: dict) -> str | None:
         pids = re.findall(r"\b\d+\b", rest)
         if not pids:
             return f"{verb} without an explicit PID is not allowed; {HOW}"
-        base = Path(os.environ.get("CLAUDE_PROJECT_DIR") or payload.get("cwd") or ".")
+        base = project_base(payload)
         try:
             ours = set((base / ".talos" / "pids").read_text(encoding="utf-8").split())
         except OSError:
@@ -60,6 +63,61 @@ def kill_problem(cmd: str, payload: dict) -> str | None:
         if strangers:
             return f"PID {', '.join(strangers)} is not one the company started; {HOW}"
     return None
+
+
+AT_START = r"(?:^|[;&|(\n]|\bsudo\s)\s*"
+GIT_WRITES = re.compile(AT_START + r"git\s+((?:-C\s+(\"[^\"]+\"|\S+)\s+)?)(?:-c\s+\S+\s+)*(commit|merge|rebase|cherry-pick|revert|pull|am|reset)\b", re.M)
+CD = re.compile(AT_START + r"cd\s+(\"[^\"]+\"|\S+)", re.M)
+SUITES = re.compile(AT_START + r"(?:\S*python\S*\s+-m\s+pytest|(?:\S*[/\\])?pytest|npm\s+(?:run\s+)?test|yarn\s+test|pnpm\s+test|npx\s+(?:jest|vitest)|go\s+test|cargo\s+test|make\s+test|tox)\b", re.M)
+
+
+def project_base(payload: dict) -> Path:
+    return Path(os.environ.get("CLAUDE_PROJECT_DIR") or payload.get("cwd") or ".")
+
+
+def protected_problem(cmd: str, payload: dict) -> str | None:
+    """Why this changes a protected branch, or None. The named forms are always refused; the rest depend on what the directory has checked out."""
+    if re.search(r"\btalos(\.py)?\s+protect\b.*--off", cmd):
+        return "only the CEO lifts a branch rule"
+    try:
+        names = json.loads((project_base(payload) / "company" / "state.json").read_text(encoding="utf-8")).get("protected") or []
+    except (OSError, ValueError):
+        return None
+    if not names:
+        return None
+    alt = "|".join(re.escape(n) for n in names)
+    named = (rf"git\s+push\b.*(\s|:|refs/heads/)({alt})(\s|$)", rf"git\s+branch\s+(-f|--force|-M|-m|-D|-d)\b.*\b({alt})(\s|$)",
+             rf"git\s+update-ref\s+\S*\b({alt})(\s|$)", rf"git\s+(checkout\s+-B|switch\s+-C)\s+({alt})(\s|$)", rf"git\s+fetch\b.*:\S*\b({alt})(\s|$)")
+    if any(re.search(p, cmd, re.M) for p in named) or (re.search(r"\bgit\s", cmd) and "--no-verify" in cmd):
+        return f"{', '.join(names)} is protected: the company never changes it. Work on a branch from `tools/talos/talos base`"
+    for m in GIT_WRITES.finditer(cmd):
+        where = (m.group(2) or "").strip('"')
+        if not where:
+            cds = [c for c in CD.finditer(cmd[:m.start()])]
+            where = cds[-1].group(1).strip('"') if cds else ""
+        at = Path(where) if where and Path(where).is_absolute() else Path(payload.get("cwd") or ".") / where
+        try:
+            head = subprocess.run(["git", "-C", str(at), "symbolic-ref", "--short", "-q", "HEAD"], capture_output=True, text=True, timeout=10).stdout.strip()
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if head in names:
+            return f"this checkout is on {head}, which is protected: the company never changes it. Work on a branch from `tools/talos/talos base`"
+    return None
+
+
+def suite_problem(cmd: str, payload: dict) -> str | None:
+    """A suite that names real hosts can reach them. `talos test` blocks the network and strips credentials."""
+    if not SUITES.search(cmd):
+        return None
+    try:
+        inv = json.loads((project_base(payload) / "company" / "knowledge" / "inventory.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    hosts = [h.get("host") for h in inv.get("hosts_in_tests") or []]
+    if not hosts:
+        return None
+    return (f"this project's tests name real hosts ({', '.join(hosts[:3])}), and a suite run in the open can reach them. "
+            "Run `tools/talos/talos test --where <checkout>` from the main checkout: it blocks the network and strips credentials")
 
 
 def main() -> int:
@@ -77,6 +135,9 @@ def main() -> int:
 
     if tool in ("Edit", "Write", "MultiEdit", "NotebookEdit"):
         path = str(inp.get("file_path", "")).replace("\\", "/")
+        if "/.git/hooks/" in path or path.endswith("/.git/talos-protected"):
+            print("talos guard: the repo's git hooks are not the company's to edit.", file=sys.stderr)
+            return 2
         for p in PROTECTED:
             if path.endswith(p):
                 print(f"talos guard: {p} is append-only and owned by the talos CLI. "
@@ -86,7 +147,7 @@ def main() -> int:
 
     if tool in ("Bash", "PowerShell"):
         cmd = str(inp.get("command", ""))
-        problem = kill_problem(cmd, payload)
+        problem = kill_problem(cmd, payload) or protected_problem(cmd, payload) or suite_problem(cmd, payload)
         if problem:
             print(f"talos guard: {problem}", file=sys.stderr)
             return 2
