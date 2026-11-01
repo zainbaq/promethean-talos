@@ -2,6 +2,9 @@
 
 Newest first. `init.py --upgrade` shows the parts newer than a project's version.
 
+## 0.3.1
+- `talos work --max-usd N` no longer fails, so `/talos` starts the runner on the first try.
+
 ## 0.3.0
 - Any folder: empty, not a repo, or a project under way. Adoption and the understanding gate.
 - Say anything: triage answers it or picks a route. GTM and productization departments draft and never send.

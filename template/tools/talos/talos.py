@@ -2331,6 +2331,8 @@ def main(argv: list[str] | None = None) -> None:
     argv = sys.argv[1:] if argv is None else argv
     if argv[:1] == ["viz"]:  # every flag after `viz` belongs to the visualizer, which argparse would reject here
         return cmd_viz(argparse.Namespace(rest=argv[1:]))
+    if argv[:1] == ["work"]:  # the same: a leading flag such as --max-usd is the runner's
+        return cmd_work(argparse.Namespace(rest=argv[1:]))
     args = build_parser().parse_args(argv)
     args.fn(args)
 
