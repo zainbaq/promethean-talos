@@ -1,5 +1,7 @@
 """v0.3 phase 4: packaging, upgrades, the record on a protected project, notifications and auto-merge."""
+import contextlib
 import http.server
+import io
 import json
 import os
 import subprocess
@@ -194,9 +196,19 @@ class OneRunner(Repo):
         p = subprocess.run([sys.executable, str(self.root / "tools/talos/talos.py"), "work", "--max-usd", "10"], cwd=self.root, env=self.env, capture_output=True, text=True, encoding="utf-8")
         self.assertEqual(p.returncode, 0, p.stderr)
         self.assertIn("already working", p.stdout)
-        p = subprocess.run([sys.executable, str(self.root / "tools/talos/talos.py"), "work", "--detach", "--max-usd", "10"], cwd=self.root, env=self.env, capture_output=True, text=True, encoding="utf-8")
-        self.assertEqual(p.returncode, 0, p.stderr)  # the command /talos runs
-        self.assertIn("running by itself", p.stdout)
+
+    def test_detach_starts_the_runner_apart_from_this_process(self):
+        self.stamp()
+        self.next()
+        import talos
+        with unittest.mock.patch.object(talos.subprocess, "Popen") as popen, unittest.mock.patch.object(talos.subprocess, "run") as run, contextlib.redirect_stdout(io.StringIO()) as out:
+            talos.main(["work", "--detach", "--max-usd", "10"])
+        run.assert_not_called()
+        cmd, opts = popen.call_args
+        self.assertEqual(cmd[0][-3:], ["work", "--max-usd", "10"])
+        self.assertTrue(opts.get("creationflags") or opts.get("start_new_session"))
+        self.assertNotIn("CLAUDECODE", opts["env"])
+        self.assertIn("running by itself", out.getvalue())
         self.assertTrue(run.exists(), "it's the other runner's file")
 
 
