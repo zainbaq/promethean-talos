@@ -102,7 +102,7 @@ By ledger timestamps: cycle.started 18:25:13; executor work 2m08s (ITEM-0001) + 
 **How to apply:** The Chief of Staff computes elapsed time as now minus the cycle.started timestamp and logs the minutes in every budget.consumed event. At plan time, budget one review and one fix round per item explicitly; a second fix round or an ADR inside a cycle is a logged budget event, not a surprise.
 ---
 id: LESSON-0007
-title: This machine: python on PATH is a stub; use C:/Users/Zain/anaconda3/python.exe 3.7.6 with PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 in Git Bash on branch master
+title: This machine: python on PATH is a stub; use C:/Users/you/anaconda3/python.exe 3.7.6 with PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 in Git Bash on branch master
 applies_to: ["devops", "testing", "engineering"]
 confidence: high
 evidence: ["company/specs/SPEC-0001-test-strategy.md", "company/specs/SPEC-0005-constraint-tests-imports-syntax-size.md", "EVT-20261025162839-36df", "EVT-20261025155512-cb7f"]
@@ -110,9 +110,9 @@ recorded: 2026-10-25T21:41:42Z
 author: learning-officer
 ---
 
-# This machine: python on PATH is a stub; use C:/Users/Zain/anaconda3/python.exe 3.7.6 with PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 in Git Bash on branch master
+# This machine: python on PATH is a stub; use C:/Users/you/anaconda3/python.exe 3.7.6 with PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 in Git Bash on branch master
 
-Facts rediscovered by several roles in cycle 1 and restated by hand in five specs (SPEC-0001 s5, SPEC-0002, SPEC-0003, SPEC-0004, SPEC-0005): the python command on PATH is a broken stub; the only interpreter is C:/Users/Zain/anaconda3/python.exe (CPython 3.7.6, pytest 5.3.5); a bare pytest exits 1 before collection because the Anaconda pytest-arraydiff entry-point plugin imports numpy whose DLL load fails, so every pytest run needs PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 (Head of QA finding); commands in specs are written for Git Bash from the repo root (a bare bash command on this machine routes to WSL); the default branch is master, while SPEC-0005 says main branch. None of this was in knowledge/ when the pre-mortem ran (index empty, EVT-20261025155512-cb7f).
+Facts rediscovered by several roles in cycle 1 and restated by hand in five specs (SPEC-0001 s5, SPEC-0002, SPEC-0003, SPEC-0004, SPEC-0005): the python command on PATH is a broken stub; the only interpreter is C:/Users/you/anaconda3/python.exe (CPython 3.7.6, pytest 5.3.5); a bare pytest exits 1 before collection because the Anaconda pytest-arraydiff entry-point plugin imports numpy whose DLL load fails, so every pytest run needs PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 (Head of QA finding); commands in specs are written for Git Bash from the repo root (a bare bash command on this machine routes to WSL); the default branch is master, while SPEC-0005 says main branch. None of this was in knowledge/ when the pre-mortem ran (index empty, EVT-20261025155512-cb7f).
 
 **Why:** Every role that rediscovers an environment fact spends budget and may write it differently; five restatements drifted (main vs master) and one became a CEO question (Q-0003).
 

@@ -20,6 +20,12 @@ Each role is a file in `template/.claude/agents/`. This page is the human-readab
 
 **Head of Productization** (`productization` team) — Owns `company/launch/readiness.md` and proposes the launch gate. Release means "merge this item"; launch means "real customers may use it".
 
+**Head of Design** — Owns the visual direction and design system, makes the mockups the CEO approves at the design gate, and critiques screenshots of built screens. Never writes product UI code.
+
+**Head of GTM** — Owns positioning and go-to-market drafts. Drafts only; the CEO sends.
+
+**Head of Productization** — Owns the launch readiness checklist behind the launch gate. Never ships.
+
 ## Review tier (Opus)
 
 **Code Reviewer** — Reviews one item's diff against its spec and the repo's standards: correctness, tests, error handling, secrets, scope creep, style. Numbered findings with severity. Never edits files; the spec wins over preference.
@@ -41,6 +47,14 @@ Each role is a file in `template/.claude/agents/`. This page is the human-readab
 **Technical Writer** — Documents what exists, traceable to code, specs, ADRs or ledger events, after running the commands it documents. Never documents behaviour that is not built.
 
 **GTM Analyst** (`gtm` team) — Drafts copy, launch posts, release notes and content calendars, and writes sourced competitor teardowns, from the Head of GTM's direction. No shell.
+
+**UI Engineer** — Implements one frontend spec in its own worktree, matching the approved mockups and tokens, and screenshots its screens before hand-back. Never changes the design.
+
+**Design QA** — Captures every built screen at phone and desktop widths in light and dark mode and runs the accessibility checks. Never changes product code.
+
+**Codebase Analyst** — Reads one area of an existing project when the company adopts it, citing `path:line` for every claim. Never changes anything.
+
+**GTM Analyst** — Researches and drafts for the Head of GTM. Never sends anything.
 
 ## Mechanical tier (Haiku)
 

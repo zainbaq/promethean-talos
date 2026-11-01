@@ -6,8 +6,8 @@
 2. Set the frontmatter: `name` (unique, no colons), `description` (when to use it; say "use proactively" if the Chief of Staff should reach for it unprompted), `model` (`fable`, `opus`, `sonnet`, `haiku`), `tools` (comma-separated; omit `Agent` so it cannot spawn sub-agents unless it should), and `isolation: worktree` for anything that edits product code in parallel.
 3. Write "You own" and "You are forbidden from" before anything else. The forbidden list is what makes the role safe.
 4. Execution roles get a hand-back block; executive roles get the CLI calls they are allowed to make with their `TALOS_ACTOR`.
-5. Add the role to the tier table in `template/CLAUDE.talos.md` and to `docs/ROLES.md`.
-6. Re-run `python init.py <project>` in stamped projects to pick it up.
+5. Add the role to a team in `template/tools/talos/teams.json` (`init.py` stamps only what a team lists), to `ROLE_KINDS` in `talos.py`, to the tier table in `template/CLAUDE.talos.md` and to `docs/ROLES.md`.
+6. Run `uv run init.py <project> --upgrade` in stamped projects to pick it up.
 
 Examples worth adding per project: `data-engineer`, `compliance-officer`, `growth-lead`, `support-engineer`, `prompt-engineer`.
 
@@ -23,7 +23,7 @@ Skills live in `template/.claude/skills/<name>/SKILL.md`. Keep the frontmatter t
 
 ## Change model tiers
 
-Edit `model:` in the agent files. The design assumes executives are at least one tier above executors. Running everything on one model works but removes the cost advantage and, more importantly, the discipline that specs must be precise enough for a weaker model.
+Presets (`talos preset`, `PRESETS` in `talos.py`) decide what a role runs on, and the `model:` line in an agent file is the fallback. The design assumes executives are at least one tier above executors. Running everything on one model works but removes the cost advantage and, more importantly, the discipline that specs must be precise enough for a weaker model.
 
 ## Headless and scheduled cycles
 

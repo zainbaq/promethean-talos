@@ -46,7 +46,7 @@ WB-3 and WB-4 wait for cycle 1 because both need `wordstat/core.py` in the tree.
 
 ## Verification and release conditions (process, not work items)
 
-- After cycle 2 the Test Engineer runs `python -m pytest` on a fresh `git worktree add` of the merged branch (not the engineers' worktrees) with `C:/Users/Zain/anaconda3/python.exe`, plus the manual charter checks: the three README commands, and `grep -E "^(import|from) " wordstat/*.py`. Attach the transcript as evidence (pre-mortem 10).
+- After cycle 2 the Test Engineer runs `python -m pytest` on a fresh `git worktree add` of the merged branch (not the engineers' worktrees) with `C:/Users/you/anaconda3/python.exe`, plus the manual charter checks: the three README commands, and `grep -E "^(import|from) " wordstat/*.py`. Attach the transcript as evidence (pre-mortem 10).
 - After any review fix the same full run is repeated from a fresh worktree before `company gate release`; a green run before the fix is not evidence (pre-mortem 20).
 - Each SPEC the Chief Architect writes lists acceptance criteria only as pytest test names or shell commands with expected stdout and exit code (pre-mortem 15), and ends with a "stop and ask" list naming the decided points: exit codes (ADR-0004), `--top` validation (ADR-0004), tokeniser and `lower` vs `casefold` (ADR-0002), table bytes (ADR-0003), 3.7.6 interpreter (ADR-0006) (pre-mortem 16).
 

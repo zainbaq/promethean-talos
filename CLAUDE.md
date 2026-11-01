@@ -10,7 +10,7 @@ This repository **is the template**, not a stamped project. There is no `company
   python init.py /tmp/vc-test --brief examples/brief-mdm.md
   cd /tmp/vc-test && tools/talos/talos status
   ```
-- `tools/talos/talos.py`, `usage.py` and the hook scripts are standard-library Python 3.8+; keep them dependency-free.
+- `tools/talos/talos.py`, `usage.py` and the hook scripts are standard-library Python 3.8+; keep them dependency-free, and start any that use `X | None` with `from __future__ import annotations`.
 - Tests: create the repo venv once with `uv venv --python 3.12 .venv`, then run `.venv/Scripts/python -m unittest discover -s tests` (Windows) or `.venv/bin/python -m unittest discover -s tests`.
 - The control room lives in `template/tools/talos/viz/` (stdlib only) and is stamped into every project unless `init.py --headless`. Its tests are pytest + Playwright under `tests/viz/` (setup in `tests/viz/requirements-dev.txt`): `.venv/Scripts/python -m pytest tests/viz -q`. To view any project from this checkout: `cd template/tools/talos && python -m viz --root <project>`.
 - Design rationale: `docs/DESIGN.md`. Role charters: `docs/ROLES.md`. How to extend: `docs/EXTENDING.md`.

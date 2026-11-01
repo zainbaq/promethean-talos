@@ -2,7 +2,7 @@
 
 **A Promethean Labs framework for running a software project as an autonomous, tiered team of Claude Code agents with a shared, git-tracked project record.**
 
-Status: v0.1 design · 2026-10-25 · Owner: Zain (CEO) · Drafted by Claude (Fable)
+Status: the v0.1 design, 2026-10-25, kept as the reasoning behind the framework. It doesn't describe today's commands, gates or defaults: see the README and `docs/plans/v0.3.md` for those. Owner: Zain (CEO). Drafted by Claude (Fable).
 
 ---
 

@@ -61,7 +61,7 @@ Say "approved" (or what should change) at each gate; `tools/talos/run review "<y
 
 ### The control room
 
-Once it is employed, ask for anything: `tools/talos/talos say --text "add CSV export"`, then `tools/talos/talos work`. Triage answers it or picks a route and says the cost first. Marketing and launch work needs `--teams core,gtm`; those roles draft and you send.
+Once it is employed, ask for anything: `tools/talos/talos say --text "add CSV export"`, then `tools/talos/talos work --detach --max-usd 10`, which keeps going after you close Claude. `tools/talos/talos say --text stop` stops it once the phase under way ends, and `tools/talos/talos questions` shows what it is waiting to hear. Each phase stops at what is left of the limit, and each start of the runner gets a new limit ($50 if you don't say). Triage answers it or picks a route and says the cost first. Marketing and launch work needs `--teams core,gtm`; those roles draft and you send.
 
 In a repo you want left alone, stamp with `--protect main`. The company then never changes `main`: its files and all approved work go on a local `talos/work` branch, and only you merge from there. `tools/talos/talos protect main --off` lifts the rule. The record is saved on its own `talos/record` branch. Git 2.28 or later refuses every change to the branch outright; on older git, a change hidden in a script is caught when the phase ends, and the queue stops until you say whose it was.
 
@@ -74,7 +74,7 @@ tools/talos/talos viz                                  # http://127.0.0.1:8000/
 tools/talos/talos viz --host 0.0.0.0 --allow-host my-pc # reachable from your phone, e.g. over Tailscale
 ```
 
-It is a page over the project record, standard library only, and it is also where you steer: approve or reject gates, answer questions, send the company a message and set the preset, from the link it prints at start (`--read-only` turns that off). Your decisions wait in the record until `tools/talos/talos work` is running.  The growth rings show one ring per cycle, an arc per phase run sized by its cost and a tick per ledger event; hover or tap any mark for what happened, who did it and what the run cost. Timeline lists every event, filterable, and Work shows the backlog by status. It updates live while a phase runs, and the project name in the header switches to any other Talos project next to this one (`--scan DIR` to look elsewhere, `--no-scan` for just this one).
+It is a page over the project record, standard library only, and it is also where you steer: approve or reject gates, answer questions, send the company a message and set the preset, from the link it prints at start (`--read-only` turns that off). Its Canopy page shows the company as a tree, with what each role is doing. Your decisions wait in the record until `tools/talos/talos work` is running.  The growth rings show one ring per cycle, an arc per phase run sized by its cost and a tick per ledger event; hover or tap any mark for what happened, who did it and what the run cost. Timeline lists every event, filterable, and Work shows the backlog by status. It updates live while a phase runs, and the project name in the header switches to any other Talos project next to this one (`--scan DIR` to look elsewhere, `--no-scan` for just this one).
 
 ## The cast
 
@@ -85,14 +85,15 @@ It is a page over the project record, standard library only, and it is also wher
 | Execution | Sonnet | Engineer (parallel) · UI Engineer · Test Engineer · Design QA · Research Analyst · UX Designer · DevOps Engineer · Technical Writer |
 | Mechanical | Haiku | Librarian |
 
-Each role is a markdown file in `.claude/agents/`. Add your own by copying one. Change the model tiers by editing `model:` in the frontmatter.
+Each role is a markdown file in `.claude/agents/`. Add your own by copying one. `tools/talos/talos preset lite|medium|heavy` sets which model each role uses; a role's `model:` line is only the fallback. GTM adds Head of GTM and GTM Analyst, productization adds Head of Productization, and Codebase Analyst reads an existing folder when the company adopts it.
 
 ## What gets stamped into your repo
 
 ```
-.claude/agents/          the staffed teams' roles (18 in all)
-.claude/skills/          /talos-kickoff /talos-plan /talos-cycle /talos-review
-                         /talos-retro /talos-status /talos-consolidate
+.claude/agents/          the staffed teams' roles (22 in all)
+.claude/skills/          /talos-kickoff /talos-adopt /talos-plan /talos-cycle /talos-review
+                         /talos-retro /talos-status /talos-consolidate /talos-triage
+                         /talos-task /talos-department /talos-design-revise
 .claude/rules/           conventions that load when anyone touches company/
 .claude/settings.json    hooks (status on start, destructive-command guard, log reminder) and permissions, merged with yours
 tools/talos/           the stdlib-only record CLI and hook scripts
@@ -101,7 +102,7 @@ company/                 the project record
 CLAUDE.md                a "Talos" section appended between markers
 ```
 
-It also adds a `.gitattributes` that forces LF checkouts (byte-exact fixtures survive Windows) and ignores bytecode and test caches. `init.py` is idempotent. Re-run it to pick up framework updates; your own files are kept unless you pass `--force`.
+It also adds a `.gitattributes` that forces LF checkouts (byte-exact fixtures survive Windows) and ignores bytecode and test caches. `init.py --upgrade` picks up framework updates and shows what changed; files you edited are kept unless you pass `--force`.
 
 The first thing the company does on a new project is probe the machine (which interpreter actually runs, the test command and its quirks, base branch, shell quirks) into `company/environment.md`, so executors never rediscover those facts mid-cycle.
 
