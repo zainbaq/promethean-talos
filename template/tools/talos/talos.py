@@ -1350,7 +1350,24 @@ def cmd_reject(args) -> None:
 def cmd_work(args) -> None:
     ensure_scaffold()
     here = Path(__file__).resolve().parent
-    sys.exit(subprocess.run([sys.executable, str(here / "run.py"), "work", *(args.rest or [])], cwd=ROOT).returncode)
+    rest = list(args.rest or [])
+    cmd = [sys.executable, str(here / "run.py"), "work"]
+    if "--detach" not in rest:
+        sys.exit(subprocess.run(cmd + rest, cwd=ROOT).returncode)
+    rest.remove("--detach")
+    (ROOT / ".talos").mkdir(exist_ok=True)
+    env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}  # it is no longer inside that session
+    with open(ROOT / ".talos" / "runner.log", "a", encoding="utf-8") as log:
+        spawn = dict(cwd=ROOT, env=env, stdin=subprocess.DEVNULL, stdout=log, stderr=log)
+        if os.name == "nt":  # no window, in case its session's job takes everything with it when it closes
+            flags = subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
+            try:
+                p = subprocess.Popen(cmd + rest, creationflags=flags | subprocess.CREATE_BREAKAWAY_FROM_JOB, **spawn)
+            except OSError:
+                p = subprocess.Popen(cmd + rest, creationflags=flags, **spawn)
+        else:
+            p = subprocess.Popen(cmd + rest, start_new_session=True, **spawn)
+    print(f"talos work: running by itself (process {p.pid}), so closing this session does not stop it. `tools/talos/talos say --text stop` does.")
 
 
 def _index(ev: list[dict], kind: str, ref: str | None = None) -> int:

@@ -6,6 +6,8 @@ Newest first. `init.py --upgrade` shows the parts newer than a project's version
 - Running `git init` by hand now answers the company's question about it, so the runner doesn't wait forever.
 - `/talos` records your answers to the company's questions instead of acting on them itself.
 
+- `talos work --detach` runs the queue on its own, so closing the session that started it does not stop it. `/talos` uses it; `talos say --text stop` stops it.
+
 ## 0.3.1
 - `talos work --max-usd N` no longer fails, so `/talos` starts the runner on the first try.
 

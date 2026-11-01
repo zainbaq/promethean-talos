@@ -192,8 +192,11 @@ class OneRunner(Repo):
         self.assertEqual(p.returncode, 0, p.stderr)
         self.assertIn("already working", p.stdout)
         p = subprocess.run([sys.executable, str(self.root / "tools/talos/talos.py"), "work", "--max-usd", "10"], cwd=self.root, env=self.env, capture_output=True, text=True, encoding="utf-8")
-        self.assertEqual(p.returncode, 0, p.stderr)  # the command /talos runs
+        self.assertEqual(p.returncode, 0, p.stderr)
         self.assertIn("already working", p.stdout)
+        p = subprocess.run([sys.executable, str(self.root / "tools/talos/talos.py"), "work", "--detach", "--max-usd", "10"], cwd=self.root, env=self.env, capture_output=True, text=True, encoding="utf-8")
+        self.assertEqual(p.returncode, 0, p.stderr)  # the command /talos runs
+        self.assertIn("running by itself", p.stdout)
         self.assertTrue(run.exists(), "it's the other runner's file")
 
 
