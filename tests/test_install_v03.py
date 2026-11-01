@@ -153,6 +153,16 @@ class Initiative(Repo):
         self.assertEqual(talos.next_action(shipped, st, items, fm)[0][0], "cycle-build")
         self.assertIn("release decision", talos.next_action(shipped[:1], st, items, fm)[1])
 
+    def test_shipping_sets_the_status_and_opens_the_next_cycle(self):
+        self.stamp()
+        iid = self.cli("item", "new", "--title", "x").split()[0].rstrip(":")
+        path = self.root / "company" / "backlog" / f"{iid}.md"
+        path.write_text(path.read_text(encoding="utf-8").replace("status: proposed", "status: verified").replace("status: ready", "status: verified"), encoding="utf-8")
+        self.assertNotEqual(self.cli("cycle", "start", "--budget", "1", ok=False).returncode, 0)
+        self.cli("log", "release.shipped", "--ref", iid, "--summary", "merged")
+        self.assertIn("status: shipped", path.read_text(encoding="utf-8"))
+        self.cli("cycle", "start", "--budget", "1")
+
     def test_approval_clears_a_stopped_phase(self):
         self.stamp()
         self.next()

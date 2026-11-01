@@ -386,7 +386,17 @@ def cmd_log(args) -> None:
         die(f"use `talos item set {args.ref or 'ITEM-xxxx'} --status {args.event.split('.')[1]} --evidence ...`: the status and the evidence go together")
     rec = append_event(args.event, actor=args.actor, tier=args.tier, ref=args.ref,
                        summary=args.summary or "", evidence=args.evidence, branch=args.branch)
+    if args.event == "release.shipped" and args.ref and item_path(args.ref).exists():
+        fm, body = parse_frontmatter(item_path(args.ref).read_text(encoding="utf-8"))
+        fm["status"] = "shipped"
+        write_lf(item_path(args.ref), dump_frontmatter(fm, body))
     print(rec["id"])
+
+
+def unreleased(items: list[dict], ev: list[dict]) -> list[str]:
+    """Verified and still waiting. The ledger counts too: an item shipped before `talos log` set its status still reads verified."""
+    shipped = {e.get("ref") for e in ev if e["event"] == "release.shipped"}
+    return [i["id"] for i in items if i.get("status") == "verified" and i["id"] not in shipped]
 
 
 AUDIENCES = ["ceo", "architect", "product", "qa", "chief-of-staff"]
@@ -687,9 +697,9 @@ def cmd_cycle(args) -> None:
     if args.action == "start":
         if st.get("cycle_open"):
             die(f"cycle {st['cycle']} is still open; end it first")
-        unreleased = [i["id"] for i in load_items() if i.get("status") == "verified"]
-        if unreleased and not args.stack:
-            die(f"verified but not released: {', '.join(unreleased)}. Get the CEO's release decision first: "
+        waiting = unreleased(load_items(), read_ledger())
+        if waiting and not args.stack:
+            die(f"verified but not released: {', '.join(waiting)}. Get the CEO's release decision first: "
                 "branches stacked across cycles cost rebases. --stack overrides, on the CEO's word only.")
         st["cycle"] = st.get("cycle", 0) + 1
         st["cycle_open"] = True
@@ -1192,7 +1202,7 @@ def next_step(st: dict, ev: list[dict], items: list[dict], fm: dict, ceo_questio
         return f"Answer {ceo_questions} open question{'s' if ceo_questions > 1 else ''}. {review}", ["review"]
     if st.get("adopt") and not latest(ev, "understanding.approved"):
         return "Let the company finish learning this folder: `tools/talos/talos work`", ["adopt"]
-    verified = [i["id"] for i in items if i.get("status") == "verified"]
+    verified = unreleased(items, ev)
     if verified:
         return f"Decide the release of {', '.join(verified)}. {review}", ["review"]
     if any(i.get("route") and i.get("status") == "ready" for i in items):
@@ -1421,7 +1431,7 @@ def next_action(ev: list[dict], st: dict, items: list[dict], fm: dict, tried=())
         ran = {e.get("phase") for e in ev[started:] if e["event"] == "run.completed"}
         phase = "cycle-close" if "cycle-verify" in ran else "cycle-verify" if "cycle-build" in ran else "cycle-build"
         return act(phase, "", f"{phase}:{cycle}", f"running {phase}")
-    waiting = [i["id"] for i in items if i.get("status") == "verified" and i["id"] not in shipped]
+    waiting = unreleased(items, ev)
     if waiting:
         return None, f"waiting on your release decision for {', '.join(waiting)}"
     ended, retro = _index(ev, "cycle.ended"), _index(ev, "retro.completed")
