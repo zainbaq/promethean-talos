@@ -44,6 +44,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -144,15 +145,26 @@ def command(phase: str, text: str, model: str | None, turns: int | None, preset:
             *budget_cap(phase), "--append-system-prompt", session_note(talos, name), *LEAN, "--tools", tools]
 
 
+LEFT_USD = None  # what `work` has left to spend; a phase can't go past it
+
+
 def budget_cap(phase: str) -> list[str]:
-    """Reading a folder has a hard cap by its size, because nobody has said yes to spending more yet."""
-    if phase != "adopt":
-        return []
-    try:
-        cap = json.loads((ROOT / "company" / "knowledge" / "inventory.json").read_text(encoding="utf-8"))["cost"]["cap"]
-    except (OSError, ValueError, KeyError):
-        return []
-    return ["--max-budget-usd", str(cap)]
+    """Reading a folder has a hard cap by its size, because nobody has said yes to spending more yet. Every phase in `work` stops at what is left of its limit."""
+    caps = [] if LEFT_USD is None else [LEFT_USD]
+    if phase == "adopt":
+        try:
+            caps.append(json.loads((ROOT / "company" / "knowledge" / "inventory.json").read_text(encoding="utf-8"))["cost"]["cap"])
+        except (OSError, ValueError, KeyError):
+            pass
+    return ["--max-budget-usd", f"{min(caps):.2f}"] if caps else []
+
+
+def through_cmd(cmd: list[str]) -> list[str]:
+    """An npm `claude.cmd` puts every argument through cmd.exe, which would run what follows a `&` in a CEO message. claude.exe needs none of this."""
+    if os.name != "nt" or not cmd[0].lower().endswith((".cmd", ".bat")):
+        return cmd
+    words = {'"': "'", "&": " and ", "|": "/", "<": "(", ">": ")", "^": "", "%": " percent ", "!": ".", "\r": " ", "\n": " "}
+    return [cmd[0]] + [a.translate(str.maketrans(words)) for a in cmd[1:]]
 
 
 def load_talos():
@@ -203,24 +215,33 @@ def stop_reason(res: dict) -> str | None:
     return None
 
 
-def git(*args: str, cwd=None) -> subprocess.CompletedProcess:
-    return subprocess.run(["git", *args], cwd=cwd or ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace")
+def git(*args: str, cwd=None, env=None) -> subprocess.CompletedProcess:
+    return subprocess.run(["git", *args], cwd=cwd or ROOT, env=env, capture_output=True, text=True, encoding="utf-8", errors="replace")
 
 
 def save_worktrees() -> list[str]:
-    """Commit each dirty worktree's work to a wip/ branch, leaving the worktree exactly as it was. Deletes nothing."""
-    listed = git("worktree", "list", "--porcelain")
-    paths = [l[len("worktree "):] for l in listed.stdout.splitlines() if l.startswith("worktree ")][1:]
+    """Commit the dirty work in the company's own worktrees to wip/ branches, leaving each exactly as it was, staged files and all. Deletes nothing.
+    A worktree the developer made is theirs: it is left alone."""
+    blocks = git("worktree", "list", "--porcelain").stdout.split("\n\n")
+    ours = (ROOT / ".claude" / "worktrees").resolve(), (ROOT / ".talos").resolve()
+    paths = []
+    for block in blocks[1:]:
+        lines = block.splitlines()
+        path = next((l[len("worktree "):] for l in lines if l.startswith("worktree ")), None)
+        if path and ("branch refs/heads/vc/" in block or any(a in Path(path).resolve().parents for a in ours)):
+            paths.append(path)
     saved = []
     for path in paths:
         if not git("status", "--porcelain", cwd=path).stdout.strip():
             continue
         name = "wip/" + Path(path).name
-        git("add", "-A", cwd=path)
-        tree = git("write-tree", cwd=path).stdout.strip()
+        with tempfile.TemporaryDirectory() as tmp:  # its own index, because `git add` and a reset would lose what was staged and any merge under way
+            env = dict(os.environ, GIT_INDEX_FILE=str(Path(tmp) / "index"))
+            git("read-tree", "HEAD", cwd=path, env=env)
+            git("add", "-A", cwd=path, env=env)
+            tree = git("write-tree", cwd=path, env=env).stdout.strip()
         head = git("rev-parse", "HEAD", cwd=path).stdout.strip()
         commit = git("commit-tree", tree, "-p", head, "-m", "wip: saved by the launcher when a phase stopped", cwd=path).stdout.strip()
-        git("reset", "-q", cwd=path)  # unstage only; the working files stay
         if commit and not git("branch", "-f", name, commit, cwd=path).returncode:
             saved.append(f"{name} ({path})")
         else:
@@ -316,7 +337,7 @@ def run_phase(phase: str, text: str, model: str | None, turns: int | None, dry: 
     mark_delivered()
     talos = load_talos()
     tips = talos.protected_tips()
-    p = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace")
+    p = subprocess.run(through_cmd(cmd), cwd=ROOT, env=dict(os.environ, TALOS_PHASE=phase), capture_output=True, text=True, encoding="utf-8", errors="replace")
     raw = p.stdout.strip()
     try:
         res = json.loads(raw[raw.index("{"):]) if "{" in raw else {}
@@ -325,6 +346,8 @@ def run_phase(phase: str, text: str, model: str | None, turns: int | None, dry: 
     if not res:
         said = raw or p.stderr.strip() or f"no output (exit {p.returncode})"
         print(said)
+        talos.report_moved(tips, phase)
+        talos.save_record()
         return stopped(phase, f"the session gave no result: {said[:200]}")
     print(res.get("result") or "")
     reason = stop_reason(res)
@@ -404,22 +427,31 @@ def work(args: list[str]) -> int:
     if other:
         print(f"talos work: a runner is already working here (process {other}); it takes new messages by itself")
         return 0
-    max_usd = float(args[args.index("--max-usd") + 1]) if "--max-usd" in args else 50.0
+    global LEFT_USD
+    try:
+        flat = "=".join(args).replace("--max-usd=", "--max-usd ").split() if any(a.startswith("--max-usd=") for a in args) else args
+        max_usd = float(flat[flat.index("--max-usd") + 1]) if "--max-usd" in flat else 50.0
+    except (ValueError, IndexError):
+        sys.exit("talos work: --max-usd needs a number of dollars")
     talos = load_talos()
-    if talos.runner_word(talos.read_ledger())[0] == "stop":
-        talos.append_event("runner.control", actor="talos-run", tier="mechanical", ref="resume", summary="runner started", extra={"word": "resume"})
+    beat, tried, spent, heard = Beat(), set(), 0.0, None
+    if talos.runner_word(talos.read_ledger())[0] == "stop":  # not "resume": that would also restart a phase stopped at its cost cap, which only the CEO says
+        talos.append_event("runner.control", actor="talos-run", tier="mechanical", ref="started", summary="runner started", extra={"word": "started"})
     if not talos.started(talos.read_state()):
         print(talos.start_folder(), flush=True)
-    beat, tried, spent = Beat(), set(), 0.0
     try:
         while True:
             ev = talos.read_ledger()
             word = talos.runner_word(ev)[0]
+            said = sum(1 for e in ev if e.get("actor") == "ceo")
+            if said != heard:  # the CEO did something, so what stopped may go now
+                tried, heard = set(), said
             if word == "stop":
                 beat.set("stopped by you")
                 return 0
             if spent >= max_usd:
-                beat.set(f"stopped at the ${max_usd:.0f} limit (spent ${spent:.2f}); start it again with a higher --max-usd")
+                beat.set(f"stopped at the ${max_usd:.2f} limit (spent ${spent:.2f}); each start of `talos work` gets its own limit")
+                print(f"talos work: stopped at the ${max_usd:.2f} limit (spent ${spent:.2f})", flush=True)
                 return 0
             fm, _ = talos.parse_frontmatter((talos.CO / "charter.md").read_text(encoding="utf-8"))
             items = talos.load_items()
@@ -447,6 +479,7 @@ def work(args: list[str]) -> int:
                 beat.set(why, phase)
                 before = ledger_len()
                 own = next((i.get("preset") for i in talos.load_items() if key == f"route:{i['id']}"), None)
+                LEFT_USD = max_usd - spent
                 run_phase(phase, text, None, None, False, own)
                 spent += sum(float(e.get("cost_usd") or 0) for e in talos.read_ledger()[before:] if e["event"] == "run.completed")
                 beat.set("between phases")
@@ -506,4 +539,6 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    for stream in (sys.stdout, sys.stderr):
+        stream.reconfigure(encoding="utf-8", errors="replace")  # a result can hold anything, and a file's default on Windows can't
     sys.exit(main())

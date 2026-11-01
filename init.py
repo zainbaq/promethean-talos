@@ -10,7 +10,7 @@ The folder can be empty, not a repo, or an existing repo. In a repo that already
 ignores go in .git/info/exclude, no .gitattributes is added, and the framework's own files get one local commit (--no-commit skips it)
 that leaves any other changes alone. Then `tools/talos/talos start` says what happens first.
 
-What it does (idempotent; safe to re-run to pick up framework updates):
+What it does (idempotent; --upgrade picks up framework updates):
   1. Copies the agents of the staffed teams (template/tools/talos/teams.json; default: all) and
      template/.claude/skills/* into the project. Existing files are overwritten only with
      --force. Re-running with more teams adds their agents; --prune removes stamped agents
@@ -129,7 +129,7 @@ def commit_stamp_on(target: Path, branch: str, paths: list[str]) -> str:
     who = [] if git_out(target, "config", "user.email").strip() else ["-c", "user.email=talos@localhost", "-c", "user.name=talos"]
     try:
         run("read-tree", branch)
-        run("add", "-f", "--", *paths)
+        run("add", "-f", "--", *paths, ":(exclude).claude/worktrees", ":(exclude).claude/settings.local.json")
         tree = run("write-tree").stdout.strip()
         commit = run(*who, "commit-tree", tree, "-p", branch, "-m", "Add Talos (framework files only)").stdout.strip()
         work = target / ".talos" / "work"
@@ -284,7 +284,7 @@ def main() -> None:
         args.teams = ",".join(dict.fromkeys([*(state.get("teams") or ["core"]), args.add_team]))
     elif stamped and not args.teams and state.get("teams"):
         args.teams = ",".join(state["teams"])  # a re-stamp keeps the project's teams
-    keep = theirs(target) if args.upgrade else set()
+    keep = theirs(target) if args.upgrade or not args.force else set()  # a re-stamp or --add-team must not record your edits as the template's
     force = args.force or args.upgrade
     existing_repo = git_out(target, "rev-parse", "HEAD").strip() != ""
     dirty = {l[3:].strip('"') for l in git_out(target, "status", "--porcelain", "--", ".claude", "tools/talos", "company", "CLAUDE.md").splitlines()} if existing_repo else set()
@@ -329,7 +329,9 @@ def main() -> None:
         print(".gitattributes: created (LF checkouts everywhere)")
     else:
         print(".gitattributes: kept (yours)")
-    gi = target / ".git" / "info" / "exclude" if existing_repo else target / ".gitignore"
+    exclude = target / git_out(target, "rev-parse", "--git-path", "info/exclude").strip() if existing_repo else None  # a subfolder or a linked worktree has no .git/info of its own
+    gi = exclude or target / ".gitignore"
+    gi.parent.mkdir(parents=True, exist_ok=True)
     wanted = ["__pycache__/", "*.pyc", ".pytest_cache/", ".venv/", ".claude/worktrees/", ".claude/settings.local.json", "company/.context/", ".talos/"]
     existing = gi.read_text(encoding="utf-8").splitlines() if gi.exists() else []
     missing = [w for w in wanted if w not in existing]
@@ -374,7 +376,7 @@ def main() -> None:
     if existing_repo and not args.no_commit:
         print(f"git: {commit_stamp(target, dirty, 'talos/work' if args.protect or state.get('protected') else None)}")
     if args.protect:  # the files are there for the company; on the protected branch they should not show as changes
-        with open(target / ".git" / "info" / "exclude", "a", encoding="utf-8", newline="\n") as f:
+        with open(exclude, "a", encoding="utf-8", newline="\n") as f:
             f.write("# promethean-talos: committed on talos/work only\n.claude/\ntools/talos/\ncompany/\n")
             if not git_out(target, "ls-files", "CLAUDE.md").strip():
                 f.write("CLAUDE.md\n")

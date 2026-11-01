@@ -18,6 +18,8 @@ Arguments: $ARGUMENTS. If they carry a rejection or corrections from the CEO, th
 
 The survey is done: `company/knowledge/inventory.json` is the map and `company/baseline.md` the test record. Read those two, not the folder. Reading is capped by size, so never read a file a subagent can summarize.
 
+Before the steps, write `company/environment.md`: follow the "Probe and record" line of `.claude/skills/talos-kickoff/SKILL.md`, step 3. Later phases read that file.
+
 ## Steps
 1. **Split it into areas**, from the inventory's tree, hot files and entry points: small, up to 3 areas; medium, up to 5; large, up to 8. Hot files come first, since that is where the work happens. A folder with no code has one area per kind of material.
 2. **Analysts in parallel.** Spawn one `codebase-analyst` per area, all in one message, with the area and a budget of 15 files each (the prompt says which, or how to choose). For material with no code they report what each kind of document is and what the company could do with it.

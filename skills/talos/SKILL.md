@@ -24,6 +24,8 @@ Everything Talos makes goes in this folder. Nothing is pushed, posted or sent. I
 
 If `${CLAUDE_PLUGIN_ROOT}/template/tools/talos/VERSION` is newer than `tools/talos/VERSION`, add one line: `/talos:talos upgrade` picks it up.
 
-If the company asked the CEO something, show the question. When they answer here, record it with `tools/talos/talos answer --by ceo <Q-id> -- '<their exact words>'`, or they can answer in the control room. The runner acts on the answer, so do not do what the question asks yourself, or tell them to.
+If the company asked the CEO something, show it with `tools/talos/talos questions`. When they answer here, record it with `tools/talos/talos answer --by ceo <Q-id> -- '<their exact words>'`, or they can answer in the control room. The runner acts on the answer, so do not do what the question asks yourself, or tell them to.
+
+If a gate is waiting and they approve or reject it, use `/talos-review` to record it in their words: it is not an ask for triage.
 
 Do not write the company's work yourself: triage and the roles do that. Report what the commands said.

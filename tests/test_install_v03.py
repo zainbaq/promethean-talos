@@ -201,7 +201,8 @@ class OneRunner(Repo):
         self.stamp()
         self.next()
         import talos
-        with unittest.mock.patch.object(talos.subprocess, "Popen") as popen, unittest.mock.patch.object(talos.subprocess, "run") as run, contextlib.redirect_stdout(io.StringIO()) as out:
+        with unittest.mock.patch.object(talos.subprocess, "Popen") as popen, unittest.mock.patch.object(talos.subprocess, "run") as run, unittest.mock.patch.object(talos.time, "sleep"), contextlib.redirect_stdout(io.StringIO()) as out:
+            popen.return_value.poll.return_value = None
             talos.main(["work", "--detach", "--max-usd", "10"])
         run.assert_not_called()
         cmd, opts = popen.call_args
@@ -250,9 +251,11 @@ class AutoMerge(Repo):
                  {"id": "ITEM-0003", "route": "item", "risk": "low", "status": "verified"},
                  {"id": "ITEM-0004", "route": "fast", "risk": "low", "status": "ready"}]
         self.assertEqual(talos.auto_approvals([], {}, items), [])
-        done = talos.auto_approvals([], {"automerge": True}, items)
+        self.assertEqual(talos.auto_approvals([], {"automerge": True}, items), [], "a label alone is not verified")
+        ev = [{"id": f"E{i}", "event": "item.verified", "ref": f"ITEM-000{i}"} for i in (1, 2, 3)]
+        done = talos.auto_approvals(ev, {"automerge": True}, items)
         self.assertEqual([e["ref"] for e in done], ["ITEM-0001"])
-        self.assertEqual(talos.auto_approvals(talos.read_ledger(), {"automerge": True}, items), [], "once")
+        self.assertEqual(talos.auto_approvals(ev + talos.read_ledger(), {"automerge": True}, items), [], "once")
 
 
 if __name__ == "__main__":

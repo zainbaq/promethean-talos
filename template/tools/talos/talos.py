@@ -18,8 +18,8 @@ Commands:
     decision add                 create an ADR
     lesson add                   record a lesson in knowledge/
     cycle start|end              open or close a cycle
-    approve charter|plan|design|design-waiver|release   record a CEO approval (quote the CEO)
-    gate charter|plan|design|release|item   exit 1 unless the gate is satisfied
+    approve understanding|charter|plan|design|design-waiver|release|launch   record a CEO approval (quote the CEO)
+    gate charter|plan|design|release|item|launch   exit 1 unless the gate is satisfied
     status                       print the dashboard (markdown)
     report [--cycle N]           write company/reports/cycle-NNN.md
     events [--cycle N]           one line per ledger event
@@ -34,11 +34,13 @@ Commands:
     pid add|done|list [PID]      the processes the company started; the only ones it may kill
     doctor                       check this machine has what the company needs
     preset [lite|medium|heavy]   print or set which model each role uses
-    reject charter|plan|design|release --reason R   record a CEO rejection
+    reject understanding|charter|plan|design|release|launch --reason R   record a CEO rejection
     say --text T                 a CEO message to the company (company/inbox.jsonl)
     inbox                        CEO messages nobody has acknowledged yet
     ack MSG --became WHAT        say what a CEO message became
-    work                         run the queue: phases one after another, waiting at gates
+    work [--detach] [--max-usd N]   run the queue, waiting at gates; --detach outlives this session
+    questions                    the questions waiting for the CEO, in full
+    protect BRANCH [--off]       the company never changes it; record, automerge, notify, version, base: see --help
     start                        look at this folder and say what happens first
     survey                       map this folder (no model): company/knowledge/inventory.json
     baseline [--check]           record which tests pass, or compare against that record
@@ -61,6 +63,8 @@ import os
 import re
 import subprocess
 import sys
+import time
+import http.client
 import urllib.request
 from datetime import datetime, timezone, date
 from pathlib import Path
@@ -380,8 +384,21 @@ def cmd_init(args) -> None:
 
 # ----------------------------------------------------------------- log / ask / answer
 
+def ceo_only(what: str) -> None:
+    """A phase the runner started has no CEO in it, unless it is the one carrying their words. Agents can't be told from the CEO any other way."""
+    phase = os.environ.get("TALOS_PHASE")
+    if phase and phase not in ("review", "triage"):
+        die(f"only the CEO can {what}, and the {phase} phase is running by itself. Ask with `talos ask --for ceo`")
+
+
+def recorded_by() -> str:
+    return os.environ.get("TALOS_ACTOR") or ("a Claude session" if os.environ.get("CLAUDECODE") else "unknown")
+
+
 def cmd_log(args) -> None:
     ensure_scaffold()
+    if args.event.endswith((".approved", ".rejected")) and args.event != "item.rejected" or args.actor == "ceo" or args.tier == "ceo":
+        ceo_only(f"log {args.event}")
     if args.event in ("item.completed", "item.verified", "item.rejected"):  # a bare event leaves the item's status behind and carries no evidence
         die(f"use `talos item set {args.ref or 'ITEM-xxxx'} --status {args.event.split('.')[1]} --evidence ...`: the status and the evidence go together")
     rec = append_event(args.event, actor=args.actor, tier=args.tier, ref=args.ref,
@@ -391,6 +408,15 @@ def cmd_log(args) -> None:
         fm["status"] = "shipped"
         write_lf(item_path(args.ref), dump_frontmatter(fm, body))
     print(rec["id"])
+
+
+def live_approval(ev: list[dict], ref: str | None = None) -> dict | None:
+    """The CEO's release approval, unless they rejected it later or the item was verified again, which means the code changed after they said yes."""
+    approved = latest(ev, "release.approved", ref)
+    if not approved:
+        return None
+    since = ev[ev.index(approved) + 1:]
+    return None if any(e.get("ref") == approved.get("ref") and e["event"] in ("release.rejected", "item.verified") for e in since) else approved
 
 
 def unreleased(items: list[dict], ev: list[dict]) -> list[str]:
@@ -428,6 +454,8 @@ def cmd_answer(args) -> None:
         die(f"{args.qid} not found in questions.md")
     block = m.group(1)
     by = args.by or "ceo"
+    if by == "ceo":
+        ceo_only(f"answer {args.qid}")
     tier = args.tier or ("ceo" if by == "ceo" else "executive")
     if args.unblock:
         asked = latest(read_ledger(), "question.asked", args.qid)
@@ -448,16 +476,26 @@ def cmd_answer(args) -> None:
     print(f"{args.qid} answered by {by}")
 
 
-def open_ceo_questions() -> list[str]:
-    """Return the ids of open questions whose audience is the CEO."""
+def open_ceo_blocks() -> dict[str, str]:
+    """{id: its text} for the open questions whose audience is the CEO."""
     if not QUESTIONS.exists():
-        return []
+        return {}
     open_part = QUESTIONS.read_text(encoding="utf-8").split("## Answered")[0]
-    ids = []
+    found = {}
     for m in re.finditer(r"^### (Q-\d+) — .*?(?=^### |\Z)", open_part, re.S | re.M):
         if re.search(r"^- for: ceo", m.group(0), re.M) or not re.search(r"^- for: ", m.group(0), re.M):
-            ids.append(m.group(1))
-    return ids
+            found[m.group(1)] = m.group(0).strip()
+    return found
+
+
+def open_ceo_questions() -> list[str]:
+    """Return the ids of open questions whose audience is the CEO."""
+    return list(open_ceo_blocks())
+
+
+def cmd_questions(args) -> None:
+    ensure_scaffold()
+    print("\n\n".join(open_ceo_blocks().values()) or "no questions waiting for the CEO")
 
 
 # ----------------------------------------------------------------- items
@@ -720,10 +758,11 @@ def cmd_cycle(args) -> None:
 
 def cmd_approve(args) -> None:
     ensure_scaffold()
+    ceo_only(f"approve the {args.what}")
     if not args.quote:
         die("--quote is required: paste the CEO's words that constitute approval")
     ev = append_event(f"{args.what}.approved", actor="ceo", tier="ceo", ref=args.ref,
-                      summary=args.quote, extra={"recorded_by": os.environ.get("TALOS_ACTOR", "unknown")})
+                      summary=args.quote, extra={"recorded_by": recorded_by()})
     if args.what == "understanding":
         adopt_charter(ev)
     if args.what == "launch":
@@ -814,13 +853,13 @@ def cmd_gate(args) -> None:
             die(f"GATE CLOSED: {len(open_lines)} readiness lines are open:\n" + "\n".join(f"  {l}" for l in open_lines), 1)
         proposed = latest(ev, "launch.proposed")
         approved = latest(ev, "launch.approved")
-        if not approved or (proposed and ev.index(approved) < ev.index(proposed)):
+        if not approved or (proposed and ev.index(approved) < ev.index(proposed)) or _index(ev, "launch.rejected") > ev.index(approved):
             die("GATE CLOSED: launch not approved by CEO since last proposal", 1)
         print(f"gate open: launch approved at {approved['ts']} ({approved['id']})")
     elif args.what == "release":
-        approved = latest(ev, "release.approved", args.ref)
+        approved = live_approval(ev, args.ref)
         if not approved:
-            die(f"GATE CLOSED: release {args.ref or ''} not approved by CEO", 1)
+            die(f"GATE CLOSED: release {args.ref or ''} not approved by CEO, or rejected or changed since", 1)
         print(f"gate open: release approved {approved['id']}")
     elif args.what == "item":
         if not args.ref:
@@ -885,6 +924,7 @@ ROLE_TAGS = {
     "test-engineer": ["testing", "qa", "verification"],
     "technical-writer": ["docs", "documentation"],
     "ux-designer": ["ux", "design", "frontend"],
+    "ui-engineer": ["engineering", "implementation", "code", "ui", "design", "frontend"],
     "code-reviewer": ["review", "engineering", "code"],
     "security-reviewer": ["security", "review"],
     "chief-architect": ["architecture", "specs", "engineering"],
@@ -962,7 +1002,7 @@ def cmd_context(args) -> None:
     lessons.sort(key=lambda x: (x[0], [-ord(c) for c in x[1]]))
     if lessons:
         parts += ["## Lessons that apply", ""] + [b + "\n" for _, _, b in lessons[:args.max_lessons]]
-    if args.role in ("engineer", "devops-engineer", "technical-writer", "ux-designer"):
+    if args.role in ("engineer", "ui-engineer", "devops-engineer", "technical-writer", "ux-designer"):
         parts += ["## Hand-back (return exactly this block)", "", HANDBACK.format(item=args.item_id, item_lower=args.item_id.lower()), ""]
     out = Path(args.out) if args.out else CO / ".context" / f"{args.item_id}-{args.role}.md"
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -1340,6 +1380,7 @@ def cmd_ack(args) -> None:
 
 def cmd_reject(args) -> None:
     ensure_scaffold()
+    ceo_only(f"reject the {args.what}")
     if args.what == "release" and not args.ref:
         die("--ref ITEM-xxxx required")
     ev = append_event(f"{args.what}.rejected", actor="ceo", tier="ceo", ref=args.ref, summary=args.reason,
@@ -1356,6 +1397,13 @@ def cmd_work(args) -> None:
         sys.exit(subprocess.run(cmd + rest, cwd=ROOT).returncode)
     rest.remove("--detach")
     (ROOT / ".talos").mkdir(exist_ok=True)
+    try:
+        was = json.loads((ROOT / ".talos" / "runner.json").read_text(encoding="utf-8"))
+        if time.time() - float(was.get("beat") or 0) < 15:
+            print(f"talos work: a runner is already working here (process {was.get('pid')}); it takes new messages by itself")
+            return
+    except (OSError, ValueError):
+        pass
     env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}  # it is no longer inside that session
     with open(ROOT / ".talos" / "runner.log", "a", encoding="utf-8") as log:
         spawn = dict(cwd=ROOT, env=env, stdin=subprocess.DEVNULL, stdout=log, stderr=log)
@@ -1367,6 +1415,12 @@ def cmd_work(args) -> None:
                 p = subprocess.Popen(cmd + rest, creationflags=flags, **spawn)
         else:
             p = subprocess.Popen(cmd + rest, start_new_session=True, **spawn)
+    for _ in range(50):  # until it says it is up, so a second start right after this one sees it
+        if (ROOT / ".talos" / "runner.json").exists() or p.poll() is not None:
+            break
+        time.sleep(0.1)
+    if p.poll() is not None:
+        die("talos work: the runner did not stay up; see .talos/runner.log")
     print(f"talos work: running by itself (process {p.pid}), so closing this session does not stop it. `tools/talos/talos say --text stop` does.")
 
 
@@ -1401,20 +1455,24 @@ def next_action(ev: list[dict], st: dict, items: list[dict], fm: dict, tried=())
         r = _index(ev, f"{gate}.rejected")
         if r > _index(ev, f"{gate}.proposed"):
             return act(phase, f"The CEO rejected the {gate}: {ev[r].get('summary', '')}", f"reject:{ev[r]['id']}", f"redoing the {gate}")
+    moved = [e.get("ref") for e in ev if e["event"] == "question.asked" and e.get("actor") == "talos-run" and " moved from " in (e.get("summary") or "") and e.get("ref") in open_ceo_blocks()]
+    if moved:
+        return None, f"a protected branch moved: waiting on your answer to {moved[0]}"
     for e in ev:
-        if e["event"] == "release.rejected" and _index(ev, "run.completed", "review") < ev.index(e):
-            text = f"The CEO rejected the release of {e.get('ref')}: {e.get('summary', '')}. Handle it as a change request."
-            found = act("review", text, f"reject:{e['id']}", f"handling the rejected release of {e.get('ref')}")
+        if e["event"] in ("release.rejected", "launch.rejected") and _index(ev, "run.completed", "review") < ev.index(e):
+            what = "launch" if e["event"] == "launch.rejected" else f"release of {e.get('ref')}"
+            text = f"The CEO rejected the {what}: {e.get('summary', '')}. Handle it as a change request."
+            found = act("review", text, f"reject:{e['id']}", f"handling the rejected {what}")
             if found[0]:
                 return found
     shipped = {e.get("ref") for e in ev if e["event"] == "release.shipped"}
     approved = sorted({e.get("ref") for e in ev if e["event"] == "release.approved"} - shipped)
-    live = [i for i in approved if any(it.get("id") == i and it.get("status") == "verified" for it in items)]
+    live = [i for i in approved if live_approval(ev, i) and any(it.get("id") == i and it.get("status") == "verified" for it in items)]
     if live:
         text = f"The CEO approved the release of {', '.join(live)}; the approvals are recorded. Check the gates, merge, and log release.shipped for each."
         return act("review", text, "merge:" + ",".join(live), f"merging {', '.join(live)}")
     routed = routed_step(ev, st, items, act)
-    if routed is not None:
+    if routed is not None and routed[0]:
         return routed
     drafts = {i["id"] for i in items if i.get("route") == "dept"}  # a draft waiting for you holds up nothing else
     asked = {e.get("ref"): e.get("blocks") for e in ev if e["event"] == "question.asked"}
@@ -1433,6 +1491,8 @@ def next_action(ev: list[dict], st: dict, items: list[dict], fm: dict, tried=())
     adopted = adoption_step(ev, st, act)
     if adopted is not None:
         return adopted
+    if routed is not None:
+        return routed
     if fm.get("status") != "approved":
         brief = CO / "brief.md"
         if brief.exists() and brief.read_text(encoding="utf-8").strip():
@@ -1479,6 +1539,7 @@ def routed_step(ev: list[dict], st: dict, items: list[dict], act):
     """The next queued ask that can run now, or None. Asks wait for an open cycle to finish, not for gates or other asks' releases."""
     if st.get("cycle_open"):
         return None
+    stuck = None
     for it in queued(items):
         if not route_open(it["route"], ev, st):
             continue
@@ -1494,8 +1555,11 @@ def routed_step(ev: list[dict], st: dict, items: list[dict], act):
             "design": ("design-revise", f"{words} ({iid}). {done}"),
             "initiative": ("plan", f"Initiative {iid}: {words}. Scope the plan to this initiative only. Leave {iid} ready: the first cycle after approval builds it."),
         }[it["route"]]
-        return act(step[0], step[1], f"route:{iid}", f"{ROUTES[it['route']].lower()}: {iid}")
-    return None
+        found = act(step[0], step[1], f"route:{iid}", f"{ROUTES[it['route']].lower()}: {iid}")
+        if found[0]:
+            return found
+        stuck = stuck or found  # one that did not finish holds up nothing else
+    return stuck
 
 
 def queued(items: list[dict]) -> list[dict]:
@@ -1523,8 +1587,8 @@ def adoption_step(ev: list[dict], st: dict, act):
         said = answered_question(ev, "git-init")
         if said is None:
             return None, "waiting on your answer about `git init`"
-        if not re.match(r"\s*(y|yes|ok|okay|sure|go|please)\b", said, re.I):
-            return None, "no git repo, as you asked: only questions and drafts can run here"
+        if re.match(r"\s*(n|no|nope|not|never|don'?t|do not|skip)\b", said, re.I):
+            return None, "no git repo, as you asked: only questions and drafts can run here. Run `git init` yourself if you change your mind"
         return act("git-init", "", "git-init", "setting up git, local only")
     if not latest(ev, "survey.completed") or latest(ev, "git.initialized") and _index(ev, "survey.completed") < _index(ev, "git.initialized"):
         return act("survey", "", f"survey:{len(ev)}", "mapping the folder")
@@ -1722,6 +1786,7 @@ def cmd_protect(args) -> None:
         print(f"base branch: {base_branch(st)}\nnever change: {', '.join(names) or 'nothing set'}")
         return
     if args.off:
+        ceo_only(f"lift the rule on {args.branch}")
         if args.branch in names:
             names.remove(args.branch)
             st["protected"] = names
@@ -1738,9 +1803,9 @@ def cmd_protect(args) -> None:
         names.append(args.branch)
     was = base_branch(st)
     st["protected"] = names
-    if was in names:
+    if was in names or not st.get("base"):  # on another branch too: the work has one home, whichever branch you happen to be on
         if not git_out("rev-parse", "--verify", "-q", f"refs/heads/{WORK_BRANCH}"):
-            p = subprocess.run(["git", "branch", WORK_BRANCH, was], cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace")
+            p = subprocess.run(["git", "branch", WORK_BRANCH, was if was in names else args.branch], cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace")
             if p.returncode != 0:
                 die(f"could not create {WORK_BRANCH}: {p.stderr.strip()}")
         st["base"] = WORK_BRANCH
@@ -1806,6 +1871,8 @@ def report_moved(before: dict, phase: str) -> list[str]:
 
 def cmd_automerge(args) -> None:
     ensure_scaffold()
+    if args.switch:
+        ceo_only("switch auto-merge")
     st = read_state()
     if args.switch:
         st["automerge"] = args.switch == "on"
@@ -1821,7 +1888,7 @@ def auto_approvals(ev: list[dict], st: dict, items: list[dict]) -> list[dict]:
     decided = {e.get("ref") for e in ev if e["event"] in ("release.approved", "release.rejected")}
     out = []
     for it in items:
-        if it.get("route") == "fast" and it.get("risk") == "low" and it.get("status") == "verified" and it["id"] not in decided:
+        if it.get("route") == "fast" and it.get("risk") == "low" and it.get("status") == "verified" and it["id"] not in decided and latest(ev, "item.verified", it["id"]):
             out.append(append_event("release.approved", actor="talos-run", tier="mechanical", ref=it["id"], summary="Auto-merge is on for low-risk fast-lane fixes", extra={"auto": True}))
     return out
 
@@ -1832,6 +1899,8 @@ def notify_path() -> Path:
 
 def cmd_notify(args) -> None:
     ensure_scaffold()
+    if args.off or args.url:
+        ceo_only("set notifications")
     path = notify_path()
     path.parent.mkdir(exist_ok=True)
     if args.off:
@@ -1841,7 +1910,8 @@ def cmd_notify(args) -> None:
     elif args.url:
         if not args.url.startswith(("https://", "http://")):
             die("the address must start with https:// or http://")
-        write_lf(path, json.dumps({"url": args.url, "link": args.link, "sent": []}))
+        sent = json.loads(path.read_text(encoding="utf-8")).get("sent", []) if path.exists() else []
+        write_lf(path, json.dumps({"url": args.url, "link": args.link, "sent": sent}))
         append_event("notify.changed", actor="ceo", tier="ceo", summary="gate notifications on")
         print(f"when a gate waits, the runner posts only the project's folder name and the gate's name to {args.url}")
     else:
@@ -1855,10 +1925,10 @@ def waiting_on_ceo(ev: list[dict], items: list[dict]) -> dict:
         p = _index(ev, f"{gate}.proposed")
         if p >= 0 and max(_index(ev, f"{gate}.approved"), _index(ev, f"{gate}.rejected")) < p:
             out[f"gate:{gate}:{ev[p]['id']}"] = f"the {gate} gate is waiting for you"
-    decided = {e.get("ref") for e in ev if e["event"] in ("release.approved", "release.rejected")}
     for it in items:
-        if it.get("status") == "verified" and it["id"] not in decided:
-            out[f"release:{it['id']}"] = f"{it['id']} is ready for your release decision"
+        done = _index(ev, "item.verified", it["id"])
+        if it.get("status") == "verified" and max(_index(ev, "release.approved", it["id"]), _index(ev, "release.rejected", it["id"])) <= done:
+            out[f"release:{it['id']}" + (f":{ev[done]['id']}" if done >= 0 else "")] = f"{it['id']} is ready for your release decision"
     for q in open_ceo_questions():
         out[f"question:{q}"] = f"question {q} is waiting for you"
     return out
@@ -1880,7 +1950,7 @@ def send_notifications(ev: list[dict], items: list[dict]) -> list[str]:
         try:
             urllib.request.urlopen(req, timeout=10).close()
             words.append(body)
-        except (OSError, ValueError) as e:
+        except (OSError, ValueError, http.client.HTTPException) as e:
             words.append(f"could not notify: {e}")
     conf["sent"] = sorted(sent)
     write_lf(path, json.dumps(conf))
@@ -2238,6 +2308,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--for", dest="audience", default="ceo", choices=AUDIENCES, help="who must answer (default ceo); technical questions go to architect")
     s.set_defaults(fn=cmd_ask)
 
+    s = sub.add_parser("questions", help="the questions waiting for the CEO, in full"); s.set_defaults(fn=cmd_questions)
     s = sub.add_parser("answer"); s.add_argument("qid"); s.add_argument("answer")
     s.add_argument("--by", help="who answered (default ceo). Use the role name for non-CEO questions, e.g. chief-architect")
     s.add_argument("--unblock", action="store_true", help="also return the item this question blocked to ready")
@@ -2269,7 +2340,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     d = sub.add_parser("decision"); dsub = d.add_subparsers(dest="sub", required=True)
     s = dsub.add_parser("add"); common(s)
-    s.add_argument("--title", required=True); s.add_argument("--status", default="proposed", choices=["proposed", "accepted", "superseded"])
+    s.add_argument("--title", required=True); s.add_argument("--status", default="proposed", choices=["proposed", "accepted", "superseded", "recovered"])
     s.add_argument("--context"); s.add_argument("--decision"); s.add_argument("--consequences"); s.add_argument("--alternatives")
     s.set_defaults(fn=cmd_decision_add)
 
@@ -2358,4 +2429,6 @@ def main(argv: list[str] | None = None) -> None:
 
 
 if __name__ == "__main__":
+    for stream in (sys.stdout, sys.stderr):
+        stream.reconfigure(encoding="utf-8", errors="replace")  # a result can hold anything, and a file's default on Windows can't
     main()

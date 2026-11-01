@@ -17,6 +17,8 @@ The CEO said: $ARGUMENTS
 **Subagents run in the foreground.** Spawn each as a normal Agent call and wait for it.
 
 ## Steps
+First, `tools/talos/talos drift`: if files changed outside the company, read them before you rely on what the record says.
+
 1. `talos status --brief`. If `company/design/direction.md` does not exist, there is nothing to revise: say so and stop.
 2. Spawn `head-of-design` with the CEO's words quoted exactly, `company/design/direction.md` and the mockups folder. It revises the direction, tokens and mockups the feedback touches, screenshots them, and leaves the rest alone. If the feedback asks for a different direction altogether, it redoes the direction rather than patching it.
 3. Only if screen copy or a flow changed, spawn `ux-designer` for those screens.

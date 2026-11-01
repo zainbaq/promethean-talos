@@ -26,6 +26,8 @@ A cycle has three phases. Each normally runs in its own fresh session through `t
 Roles: **build** is run by the Chief of Staff (the preset's executive model; `TALOS_ACTOR=chief-of-staff TALOS_TIER=executive`), or by the Coordinator on Sonnet when every ready item is risk low, because then dispatch decides nothing. **verify** and **close** are run by the Coordinator (Sonnet; `TALOS_ACTOR=coordinator TALOS_TIER=execution`), who follows these steps exactly and escalates every judgment call: technical ones to a `chief-architect` subagent, scope ones as `talos ask --for ceo`.
 
 ## Phase: build
+First, `tools/talos/talos drift`: if files changed outside the company, read them before you rely on what the record says.
+
 
 1. **Gate and open.** `talos gate plan` and, when the design team is staffed, `talos gate design` (closed: stop and ask the CEO). `talos cycle start --budget "<budget>"`; the budget comes from the arguments or the charter and covers review and verification, not only engineering.
 2. **Select.** `talos item list --status ready`. Choose up to the charter's parallelism of items whose specs do not overlap in files and do not depend on each other; P0 first. Run `talos spec lint <SPEC>` for each; a spec that fails goes to `chief-architect` to fix, and you pick another item.

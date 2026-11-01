@@ -8,10 +8,13 @@ Blocks (exit 2 with a reason on stderr):
   - rm -rf of / or the home directory
   - killing a process the company did not start (only PIDs in .talos/pids; never by name or port)
   - changing a branch the CEO protected (`talos protect`), or lifting that rule
+  - turning on auto-merge or notifications, or switching off the repo's hooks
   - running a test suite directly when the survey found real hosts in the tests (use `talos test`)
 
 Everything else is allowed (exit 0, no output). Standard library only.
 """
+from __future__ import annotations
+
 import json
 import os
 import re
@@ -71,15 +74,27 @@ CD = re.compile(AT_START + r"cd\s+(\"[^\"]+\"|\S+)", re.M)
 SUITES = re.compile(AT_START + r"(?:\S*python\S*\s+-m\s+pytest|(?:\S*[/\\])?pytest|npm\s+(?:run\s+)?test|yarn\s+test|pnpm\s+test|npx\s+(?:jest|vitest)|go\s+test|cargo\s+test|make\s+test|tox)\b", re.M)
 
 
+TALOS = r"\btalos(?:\.py|\.cmd)?\s+"
+GIT = r"\bgit\s+(?:-[cC]\s+\S+\s+)*"
+END = r"(?:\s|$|[;&|)])"
+STOP = r"\s*(?:$|[;&|)])"
+
+
+def unquoted(cmd: str) -> str:
+    """The command with its quotes gone, so `"main"` reads as main. A quoted -C path stays one word."""
+    return re.sub(r"""-C\s+("[^"]*"|'[^']*')""", "-C x", cmd).replace('"', "").replace("'", "")
+
+
 def project_base(payload: dict) -> Path:
     return Path(os.environ.get("CLAUDE_PROJECT_DIR") or payload.get("cwd") or ".")
 
 
 def protected_problem(cmd: str, payload: dict) -> str | None:
     """Why this changes a protected branch, or None. The named forms are always refused; the rest depend on what the directory has checked out."""
-    if re.search(r"\btalos(\.py)?\s+protect\b.*--off", cmd):
+    flat = unquoted(cmd)
+    if re.search(TALOS + r"protect\b.*--off", flat):
         return "only the CEO lifts a branch rule"
-    if re.search(r"\btalos(\.py)?\s+(automerge\s+on|notify\s+\S)", cmd):
+    if re.search(TALOS + r"(automerge\s+on|notify\s+\S)", flat):
         return "only the CEO turns on auto-merge or sets where notifications go"
     try:
         names = json.loads((project_base(payload) / "company" / "state.json").read_text(encoding="utf-8")).get("protected") or []
@@ -88,9 +103,13 @@ def protected_problem(cmd: str, payload: dict) -> str | None:
     if not names:
         return None
     alt = "|".join(re.escape(n) for n in names)
-    named = (rf"git\s+push\b.*(\s|:|refs/heads/)({alt})(\s|$)", rf"git\s+branch\s+(-f|--force|-M|-m|-D|-d)\b.*\b({alt})(\s|$)",
-             rf"git\s+update-ref\s+\S*\b({alt})(\s|$)", rf"git\s+(checkout\s+-B|switch\s+-C)\s+({alt})(\s|$)", rf"git\s+fetch\b.*:\S*\b({alt})(\s|$)")
-    if any(re.search(p, cmd, re.M) for p in named) or (re.search(r"\bgit\s", cmd) and "--no-verify" in cmd):
+    named = (rf"{GIT}push\b.*(\s|:|refs/heads/)({alt}|HEAD){END}", rf"{GIT}push(\s+-\S+)*(\s+\S+)?{STOP}",
+             rf"{GIT}branch\s+(-f|--force|-M|-m|-D|-d)\b.*\b({alt}){END}", rf"{GIT}update-ref\s+(-\S+\s+)*\S*\b({alt}){END}",
+             rf"{GIT}(checkout\s+-B|switch\s+-C)\s+({alt}){END}", rf"{GIT}fetch\b.*:\S*\b({alt}){END}",
+             rf"{GIT}(checkout|switch)\s+({alt}){STOP}")
+    if re.search(r"\bgit\b.*\bcore\.hookspath\b", flat, re.I):
+        return "the repo's hooks are what hold the branch rule; the company does not change where they live"
+    if any(re.search(p, flat, re.M) for p in named) or (re.search(r"\bgit\s", flat) and "--no-verify" in flat):
         return f"{', '.join(names)} is protected: the company never changes it. Work on a branch from `tools/talos/talos base`"
     for m in GIT_WRITES.finditer(cmd):
         where = (m.group(2) or "").strip('"')
@@ -139,6 +158,9 @@ def main() -> int:
         path = str(inp.get("file_path", "")).replace("\\", "/")
         if "/.git/hooks/" in path or path.endswith("/.git/talos-protected"):
             print("talos guard: the repo's git hooks are not the company's to edit.", file=sys.stderr)
+            return 2
+        if path.endswith("/.talos/notify.json") or path == ".talos/notify.json":
+            print("talos guard: only the CEO sets where notifications go.", file=sys.stderr)
             return 2
         for p in PROTECTED:
             if path.endswith(p):

@@ -2,6 +2,17 @@
 
 Newest first. `init.py --upgrade` shows the parts newer than a project's version.
 
+## 0.3.3
+- The guard catches `talos.cmd`, quoted names, `git -C`, a bare `git push`, switching onto a protected branch and `core.hooksPath`, and it now sees PowerShell.
+- A phase the runner started can't approve, reject or answer as the CEO, except the review and triage phases that carry their words.
+- A rejected release no longer merges, and an approval ends when the item is verified again. Rejecting the launch now does something.
+- A moved protected branch holds merges and queued asks until you answer.
+- `--max-usd` now caps each phase at what is left, not only between phases.
+- The runner no longer dies on a character Windows can't write to a file. A stop leaves your own worktrees alone and keeps staged files.
+- An edit is no longer overwritten by `--upgrade` after `--add-team` or a re-stamp. A subfolder of a repo can be stamped, and `--protect` works from another branch.
+- Fewer dead ends: any answer but no starts `git init`, an answer retries what stopped, and one stuck ask doesn't block the rest.
+- `talos questions` shows what is waiting. Adoption probes the environment.
+
 ## 0.3.2
 - Running `git init` by hand now answers the company's question about it, so the runner doesn't wait forever.
 - `/talos` records your answers to the company's questions instead of acting on them itself.

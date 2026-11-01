@@ -26,12 +26,14 @@ You are running the PLAN procedure as the Chief of Staff (read `.claude/agents/c
 **Subagents run in the foreground.** Spawn every subagent as a normal (foreground) Agent call and wait for its result before you continue. Never start one in the background: a headless phase ends when your turn ends, and a background agent is cut off with its work lost (in the first UI test a background architect spent 1.5M tokens and wrote nothing).
 
 ## Steps
+First, `tools/talos/talos drift`: if files changed outside the company, read them before you rely on what the record says.
+
 
 1. **Pre-mortem** (per the table). Spawn `learning-officer` to write `company/retros/pre-mortem-plan.md`: the lessons most likely to bite this plan and what they threaten.
 
 2. **Backlog.** Spawn `head-of-product` with the charter. It creates each item with `talos item new`, priority and one acceptance line per charter success criterion. Items are small enough for one engineer in one cycle.
 
-3. **Architecture and specs.** Spawn `chief-architect` with the charter path, the project size, the item ids, the pre-mortem if any, and the table row for this size. It records ADRs (`talos decision add`), writes one spec per item (`talos spec new --item ITEM-xxxx`), executes every acceptance command it can, marks the rest UNEXECUTED, sets `--risk` on every item and runs `talos spec lint` until every spec passes. For medium and large, run this as two sessions: architecture and breakdown first, specs second. An item that cannot be specced until earlier work lands says what it waits for and stays `proposed`; everything else is `ready` before the plan gate.
+3. **Architecture and specs.** Spawn `chief-architect` with the charter path, the project size, the item ids, the pre-mortem if any, and the table row for this size. It records ADRs (`talos decision add`), writes one spec per item (`talos spec new --title "<title>" --item ITEM-xxxx`), executes every acceptance command it can, marks the rest UNEXECUTED, sets `--risk` on every item and runs `talos spec lint` until every spec passes. For medium and large, run this as two sessions: architecture and breakdown first, specs second. An item that cannot be specced until earlier work lands says what it waits for and stays `proposed`; everything else is `ready` before the plan gate.
 
 3a. **Design** (when the design team is staffed). Spawn `head-of-design` with the charter, the size and the item list. It writes `company/design/direction.md`, `tokens.css`, `components.md` and mockups of the two or three key screens (small: two), screenshots them, and logs `design.proposed`. Specs for UI items reference the mockups and tokens by path. The CEO approves the design together with the plan unless the charter quotes the CEO waiving the design gate (`talos approve design-waiver --quote ...`).
 
