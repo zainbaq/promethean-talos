@@ -7,6 +7,7 @@ import sys
 import threading
 import time
 import unittest
+import unittest.mock
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -126,6 +127,28 @@ class Adopted(Repo):
         self.cli("log", "understanding.proposed", "--summary", "x")
         self.cli("approve", "understanding", "--quote", "ok")
         self.assertIn("gate open", self.cli("gate", "charter"))
+
+
+class Initiative(Repo):
+    def test_planned_once_then_built_after_approval(self):
+        self.stamp()
+        self.next()
+        import talos
+        ev = [{"id": "E1", "event": "understanding.approved", "ref": None}, {"id": "E2", "event": "ask.routed", "ref": "ITEM-0001"}]
+        items = [{"id": "ITEM-0001", "route": "initiative", "status": "ready", "title": "x", "priority": "P2"}]
+        with unittest.mock.patch.object(talos, "route_open", return_value=True):
+            act = lambda *a: a
+            self.assertEqual(talos.routed_step(ev, {}, items, act)[0], "plan")
+            ev.append({"id": "E3", "event": "plan.proposed", "ref": None})
+            self.assertIsNone(talos.routed_step(ev, {}, items, act))
+
+    def test_approval_clears_a_stopped_phase(self):
+        self.stamp()
+        self.next()
+        import talos
+        stop = {"id": "E1", "event": "run.stopped", "ref": "plan"}
+        self.assertEqual(talos.pending_stop([stop]), stop)
+        self.assertIsNone(talos.pending_stop([stop, {"id": "E2", "event": "plan.approved", "ref": None}]))
 
 
 class OneRunner(Repo):

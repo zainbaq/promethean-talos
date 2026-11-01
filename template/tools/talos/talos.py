@@ -1177,6 +1177,8 @@ def pending_stop(ev: list[dict] | None = None) -> dict | None:
             stop = e
         elif stop and e["event"] == "run.completed" and e.get("ref") == stop.get("ref"):
             stop = None  # a stopped rerun logs run.stopped straight after, which sets it again
+        elif stop and e["event"] == f"{stop.get('ref')}.approved":
+            stop = None  # the CEO approved what the phase was for
     return stop
 
 
@@ -1451,13 +1453,16 @@ def routed_step(ev: list[dict], st: dict, items: list[dict], act):
         if not route_open(it["route"], ev, st):
             continue
         iid, words = it["id"], it.get("title", "")
+        gate = {"initiative": "plan", "design": "design"}.get(it["route"])
+        if gate and _index(ev, f"{gate}.proposed") > _index(ev, "ask.routed", iid):
+            continue  # proposed, so it waits at the gate; the ledger says so whatever the session remembered to do
         done = f"When it is proposed, run `talos item set {iid} --status in_progress --summary \"proposed\"`."
         step = {
             "fast": ("task", iid),
             "item": ("task", iid),
             "dept": ("department", iid),
             "design": ("design-revise", f"{words} ({iid}). {done}"),
-            "initiative": ("plan", f"Initiative {iid}: {words}. Scope the plan to this initiative only. {done}"),
+            "initiative": ("plan", f"Initiative {iid}: {words}. Scope the plan to this initiative only. Leave {iid} ready: the first cycle after approval builds it."),
         }[it["route"]]
         return act(step[0], step[1], f"route:{iid}", f"{ROUTES[it['route']].lower()}: {iid}")
     return None
