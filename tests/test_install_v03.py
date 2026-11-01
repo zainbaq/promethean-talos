@@ -163,6 +163,16 @@ class Initiative(Repo):
         self.assertIn("status: shipped", path.read_text(encoding="utf-8"))
         self.cli("cycle", "start", "--budget", "1")
 
+    def test_git_init_by_hand_answers_the_question(self):
+        self.stamp()
+        self.next()
+        import talos
+        ev = [{"id": "E1", "event": "question.asked", "ref": "Q-0001", "blocks": "git-init"}]
+        with unittest.mock.patch.object(talos, "open_ceo_questions", return_value=["Q-0001"]):
+            self.assertNotIn("waiting on your answer to", str(talos.next_action(ev, {}, [], {})[1]))
+            ev[0]["blocks"] = "something-else"
+            self.assertIn("waiting on your answer to", str(talos.next_action(ev, {}, [], {})[1]))
+
     def test_approval_clears_a_stopped_phase(self):
         self.stamp()
         self.next()

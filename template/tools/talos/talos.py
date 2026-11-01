@@ -1401,6 +1401,9 @@ def next_action(ev: list[dict], st: dict, items: list[dict], fm: dict, tried=())
         return routed
     drafts = {i["id"] for i in items if i.get("route") == "dept"}  # a draft waiting for you holds up nothing else
     asked = {e.get("ref"): e.get("blocks") for e in ev if e["event"] == "question.asked"}
+    import survey
+    if survey.is_repo(ROOT):
+        drafts.add("git-init")  # they ran `git init` themselves, which answers it
     n = len([q for q in open_ceo_questions() if asked.get(q) not in drafts])
     if n:
         return None, f"waiting on your answer to {n} question{'s' if n > 1 else ''}"

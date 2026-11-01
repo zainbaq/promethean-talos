@@ -2,6 +2,10 @@
 
 Newest first. `init.py --upgrade` shows the parts newer than a project's version.
 
+## 0.3.2
+- Running `git init` by hand now answers the company's question about it, so the runner doesn't wait forever.
+- `/talos` records your answers to the company's questions instead of acting on them itself.
+
 ## 0.3.1
 - `talos work --max-usd N` no longer fails, so `/talos` starts the runner on the first try.
 
