@@ -2,7 +2,9 @@
 """
 init.py — stamp the Talos framework into a target project.
 
-    uv run init.py /path/to/project [--brief brief.md] [--teams core,design] [--force] [--prune] [--viz] [--no-commit]
+    uv run init.py /path/to/project [--brief brief.md] [--teams core,design] [--force] [--prune] [--headless] [--no-commit]
+    uv run init.py /path/to/project --upgrade          pick up a newer Talos; files you changed are kept and listed
+    uv run init.py /path/to/project --add-team gtm     staff one more team
 
 The folder can be empty, not a repo, or an existing repo. In a repo that already has commits nothing of the developer's is rewritten:
 ignores go in .git/info/exclude, no .gitattributes is added, and the framework's own files get one local commit (--no-commit skips it)
@@ -15,8 +17,8 @@ What it does (idempotent; safe to re-run to pick up framework updates):
      of teams no longer listed.
   2. Merges template/.claude/settings.json into the project's .claude/settings.json
      (hooks are appended if not already present; permissions are unioned).
-  3. Copies template/tools/talos/ (the record CLI) into the project. The visualizer
-     (tools/talos/viz) is left out unless --viz is given: projects are headless by default.
+  3. Copies template/tools/talos/ (the record CLI) into the project. The control room
+     (tools/talos/viz) comes with it; --headless leaves it out of a new project.
   4. Appends template/CLAUDE.talos.md to the project's CLAUDE.md between markers
      (replaces the marked section on re-run).
   5. Runs `talos init` to create the company/ record scaffold, seeding company/brief.md
@@ -27,8 +29,10 @@ Standard library only.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -40,12 +44,54 @@ MARK_START = "<!-- talos:start -->"
 MARK_END = "<!-- talos:end -->"
 # Projects stamped before the rename carry these markers; re-stamping replaces them in place.
 LEGACY_MARKS = [("<!-- virtual-company:start -->", "<!-- virtual-company:end -->")]
+MANIFEST = "tools/talos/stamped.json"
 
 
 def write_lf(path, text, encoding="utf-8"):
     """Write text with LF line endings on every platform (Windows would otherwise emit CRLF)."""
     with open(path, "w", encoding=encoding, newline="\n") as f:
         f.write(text)
+
+
+def sha(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def stamped_files() -> dict[str, Path]:
+    """Every file that may be edited in a project, by its path there, to the template file it came from."""
+    base = TEMPLATE / ".claude"
+    return {f".claude/{p.relative_to(base).as_posix()}": p for sub in ("agents", "skills", "rules") for p in (base / sub).rglob("*")
+            if p.is_file() and "__pycache__" not in p.parts}
+
+
+def theirs(target: Path) -> set[str]:
+    """What the project changed since it was stamped, by comparing with the hashes recorded then. A project from before the record: whatever differs from the template."""
+    path = target / MANIFEST
+    was = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    out = set()
+    for rel, src in stamped_files().items():
+        have = target / rel
+        if have.is_file() and sha(have) != was.get(rel, sha(src)):
+            out.add(rel)
+    return out
+
+
+def write_manifest(target: Path, kept: set[str]) -> None:
+    path = target / MANIFEST
+    was = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    out = {}
+    for rel, src in stamped_files().items():
+        if (target / rel).is_file():
+            out[rel] = was.get(rel, sha(src)) if rel in kept else sha(target / rel)
+    write_lf(path, json.dumps(out, indent=1, sort_keys=True) + "\n")
+
+
+def changes_since(old: str) -> str:
+    """The parts of the changelog newer than the version a project had."""
+    def key(v):
+        return tuple(int(n) for n in re.findall(r"\d+", v))
+    parts = re.split(r"^## ", (TEMPLATE / "tools" / "talos" / "CHANGES.md").read_text(encoding="utf-8"), flags=re.M)[1:]
+    return "\n".join("## " + p.strip() for p in parts if key(p.split()[0]) > key(old))
 
 
 def copy_tree(src: Path, dst: Path, force: bool, skip: tuple[str, ...] = ()) -> tuple[list[str], list[str]]:
@@ -86,8 +132,13 @@ def commit_stamp_on(target: Path, branch: str, paths: list[str]) -> str:
         run("add", "-f", "--", *paths)
         tree = run("write-tree").stdout.strip()
         commit = run(*who, "commit-tree", tree, "-p", branch, "-m", "Add Talos (framework files only)").stdout.strip()
+        work = target / ".talos" / "work"
+        if (work / ".git").exists() and git_out(work, "status", "--porcelain").strip():
+            return f"not committed on {branch}: its worktree at .talos/work has changes"
         if not commit or run("update-ref", f"refs/heads/{branch}", commit).returncode != 0:
             return f"not committed on {branch}; worktrees will not have tools/talos"
+        if (work / ".git").exists():  # the branch moved under its worktree
+            subprocess.run(["git", "reset", "-q", "--hard"], cwd=work, capture_output=True)
     finally:
         index.unlink(missing_ok=True)
     return f"committed the framework's files on {branch}, not on your branch, not pushed"
@@ -117,7 +168,7 @@ def load_teams() -> dict:
     return {k: v for k, v in t.items() if not k.startswith("_")}
 
 
-def stamp_agents(target: Path, teams: list[str], force: bool, prune: bool) -> str:
+def stamp_agents(target: Path, teams: list[str], force: bool, prune: bool, keep: set[str] = frozenset()) -> str:
     catalog = load_teams()
     unknown = [t for t in teams if t not in catalog]
     if unknown:
@@ -128,7 +179,7 @@ def stamp_agents(target: Path, teams: list[str], force: bool, prune: bool) -> st
     written, kept, removed = [], [], []
     for name in sorted(want):
         src, out = TEMPLATE / ".claude" / "agents" / f"{name}.md", dst / f"{name}.md"
-        if out.exists() and not force:
+        if out.exists() and (not force or f".claude/agents/{name}.md" in keep):
             kept.append(name)
             continue
         shutil.copy2(src, out)
@@ -205,9 +256,10 @@ def main() -> None:
     ap.add_argument("--python", default="3.12", help="Python version for the project venv created with uv (default 3.12)")
     ap.add_argument("--no-commit", action="store_true", help="in an existing repo, do not commit the framework's files")
     ap.add_argument("--protect", metavar="BRANCH", help="in an existing repo, the company never changes this branch: its files and work go on talos/work")
-    ap.add_argument("--viz", action="store_true",
-                    help="also install the visualizer (tools/talos/viz; start it with `tools/talos/talos viz`). "
-                         "Projects are headless by default; a project that already has it keeps it on re-stamp")
+    ap.add_argument("--viz", action="store_true", help="add the control room to a project stamped --headless")
+    ap.add_argument("--headless", action="store_true", help="leave the control room out of a new project")
+    ap.add_argument("--upgrade", action="store_true", help="refresh the framework's files; the teams stay, files you changed are kept and listed, company/ is not touched")
+    ap.add_argument("--add-team", metavar="TEAM", help="staff one more team, keeping the ones this project has")
     args = ap.parse_args()
 
     target = Path(args.target).resolve()
@@ -221,20 +273,34 @@ def main() -> None:
     except Exception:
         pass
     print(f"Stamping Talos into {target}\n")
+    state_file = target / "company" / "state.json"
+    state = json.loads(state_file.read_text(encoding="utf-8")) if state_file.is_file() else {}
+    stamped = (target / "tools" / "talos" / "talos.py").is_file()
+    if (args.upgrade or args.add_team) and not stamped:
+        sys.exit("init: Talos is not in this folder yet; run init.py without --upgrade or --add-team first")
+    version_file = target / "tools" / "talos" / "VERSION"
+    old_version = version_file.read_text(encoding="utf-8").strip() if version_file.is_file() else "0"
+    if args.add_team:
+        args.teams = ",".join(dict.fromkeys([*(state.get("teams") or ["core"]), args.add_team]))
+    elif stamped and not args.teams and state.get("teams"):
+        args.teams = ",".join(state["teams"])  # a re-stamp keeps the project's teams
+    keep = theirs(target) if args.upgrade else set()
+    force = args.force or args.upgrade
     existing_repo = git_out(target, "rev-parse", "HEAD").strip() != ""
     dirty = {l[3:].strip('"') for l in git_out(target, "status", "--porcelain", "--", ".claude", "tools/talos", "company", "CLAUDE.md").splitlines()} if existing_repo else set()
 
     teams = [t.strip() for t in (args.teams or ",".join(load_teams())).split(",") if t.strip()]
     if args.teams and "core" not in teams:
         sys.exit("init: the core team is required (add core to --teams)")
-    print(stamp_agents(target, teams, args.force, args.prune))
+    print(stamp_agents(target, teams, force, args.prune, keep))
     for sub in ("skills", "rules"):
-        w, k = copy_tree(TEMPLATE / ".claude" / sub, target / ".claude" / sub, args.force)
+        skip = tuple(r[len(f".claude/{sub}/"):] for r in keep if r.startswith(f".claude/{sub}/"))
+        w, k = copy_tree(TEMPLATE / ".claude" / sub, target / ".claude" / sub, force, skip)
         print(f".claude/{sub}: {len(w)} written, {len(k)} kept" + (f" (re-run with --force to overwrite: {', '.join(k[:5])}{'…' if len(k) > 5 else ''})" if k else ""))
 
     print(f".claude/settings.json: {merge_settings(TEMPLATE / '.claude' / 'settings.json', target / '.claude' / 'settings.json')}")
 
-    with_viz = args.viz or (target / "tools" / "talos" / "viz" / "server.py").is_file()
+    with_viz = args.viz or (target / "tools" / "talos" / "viz" / "server.py").is_file() or (not stamped and not args.headless)
     w, k = copy_tree(TEMPLATE / "tools", target / "tools", True, skip=() if with_viz else ("talos/viz",))
     for name in ("talos", "run", "pyrun"):
         try:
@@ -243,8 +309,13 @@ def main() -> None:
         except Exception:
             pass
     print(f"tools/talos: {len(w)} written (always refreshed)")
-    print("visualizer: installed (start it with `tools/talos/talos viz`)" if with_viz
-          else "visualizer: not installed (headless; add it with --viz)")
+    print("control room: installed (start it with `tools/talos/talos viz`)" if with_viz
+          else "control room: not installed (headless; add it with --viz)")
+    write_manifest(target, keep)
+    if keep:
+        print(f"kept because you changed them, compare with the template yourself: {', '.join(sorted(keep))}")
+    if args.upgrade:
+        print(changes_since(old_version) or f"already at {(TEMPLATE / 'tools' / 'talos' / 'VERSION').read_text(encoding='utf-8').strip()}")
 
     print(f"CLAUDE.md: {splice_claude_md(TEMPLATE / 'CLAUDE.talos.md', target / 'CLAUDE.md')}")
 
@@ -301,7 +372,7 @@ def main() -> None:
             sys.exit("init: --protect needs an existing repo with at least one commit")
         subprocess.run([sys.executable, str(target / "tools" / "talos" / "talos.py"), "protect", args.protect, "--actor", "ceo", "--tier", "ceo"], cwd=target, check=True)
     if existing_repo and not args.no_commit:
-        print(f"git: {commit_stamp(target, dirty, 'talos/work' if args.protect else None)}")
+        print(f"git: {commit_stamp(target, dirty, 'talos/work' if args.protect or state.get('protected') else None)}")
     if args.protect:  # the files are there for the company; on the protected branch they should not show as changes
         with open(target / ".git" / "info" / "exclude", "a", encoding="utf-8", newline="\n") as f:
             f.write("# promethean-talos: committed on talos/work only\n.claude/\ntools/talos/\ncompany/\n")

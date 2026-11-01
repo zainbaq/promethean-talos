@@ -190,7 +190,7 @@ class Departments(Repo):
     def test_unstaffed_says_how_and_blocks(self):
         self.stamp()
         reply = self.cli("triage", self.ask("launch copy"), "--route", "dept", "--dept", "gtm", "--title", "Launch copy")
-        self.assertIn("--teams gtm", reply)
+        self.assertIn("--add-team gtm", reply)
         self.assertEqual(self.cli("queue"), "nothing queued")
 
     def test_a_draft_runs_at_once_and_its_question_holds_up_nothing(self):

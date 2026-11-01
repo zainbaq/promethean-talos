@@ -29,7 +29,7 @@ Commands:
     usage [--cycle N] [--by ...] measured token usage from Claude Code transcripts
     journal [--date YYYY-MM-DD]  render ledger to company/journal/
     consolidate                  rebuild knowledge/INDEX.md and flag duplicates
-    viz [--host H --port P ...]  serve the visualizer (opt-in: stamp with init.py --viz)
+    viz [--host H --port P ...]  serve the control room (left out by init.py --headless)
     handback ITEM --role R --text T   file a hand-back the moment it arrives (company/handbacks/)
     pid add|done|list [PID]      the processes the company started; the only ones it may kill
     doctor                       check this machine has what the company needs
@@ -61,6 +61,7 @@ import os
 import re
 import subprocess
 import sys
+import urllib.request
 from datetime import datetime, timezone, date
 from pathlib import Path
 
@@ -88,7 +89,7 @@ EVENT_TYPES = {
     "charter.rejected", "plan.rejected", "design.rejected", "release.rejected",
     "survey.completed", "baseline.recorded", "git.initialized",
     "understanding.proposed", "understanding.approved", "understanding.rejected",
-    "branch.protected", "branch.unprotected", "ask.routed", "drift.seen",
+    "branch.protected", "branch.unprotected", "branch.moved", "ask.routed", "drift.seen", "automerge.changed", "notify.changed",
     "launch.proposed", "launch.approved", "launch.rejected",
 }
 
@@ -118,6 +119,7 @@ BECAME = ["correction", "item", "lesson", "note", "answer"]
 RUNNER_WORDS = ("pause", "resume", "stop")
 
 WORK_BRANCH = "talos/work"
+RECORD_BRANCH = "talos/record"
 # Who runs a department's work, and which team stamps that role.
 DEPARTMENTS = {
     "gtm": ("head-of-gtm", "gtm"),
@@ -1632,6 +1634,14 @@ PROTECT_HOOK = """#!/bin/sh
 [ -n "$CLAUDECODE" ] || exit 0
 list="$(git rev-parse --git-common-dir)/talos-protected"
 [ -f "$list" ] || exit 0
+if [ "$(basename "$0")" = reference-transaction ]; then  # git 2.28 and later: every ref change, including fast-forwards and scripts
+  [ "$1" = prepared ] || exit 0
+  while read -r _ _ ref; do
+    b=${ref#refs/heads/}
+    if [ "$b" != "$ref" ] && grep -qxF "$b" "$list"; then echo "talos: $b is protected; work on a branch from $(git config talos.base || echo talos/work)" >&2; exit 1; fi
+  done
+  exit 0
+fi
 if [ "$(basename "$0")" = pre-push ]; then
   while read -r _ _ remote_ref _; do
     b=${remote_ref#refs/heads/}
@@ -1654,7 +1664,7 @@ def install_protect_hooks(names: list[str]) -> str:
     if git_out("config", "core.hooksPath"):
         return "git hooks not installed (this repo sets core.hooksPath); the session guard still applies"
     kept = []
-    for name in ("pre-commit", "pre-merge-commit", "pre-push"):
+    for name in ("pre-commit", "pre-merge-commit", "pre-push", "reference-transaction"):
         hook = common / "hooks" / name
         if hook.exists() and "talos protect" not in hook.read_text(encoding="utf-8", errors="replace"):
             kept.append(name)
@@ -1700,6 +1710,146 @@ def cmd_protect(args) -> None:
     append_event("branch.protected", actor=args.actor or "ceo", tier=args.tier or "ceo", ref=args.branch,
                  summary=f"the company will never change {args.branch}; work goes on {base_branch(st)}")
     print(f"{args.branch} is protected. Work and approved releases go on {base_branch(st)}, and only you merge from there. {hooks}.")
+
+
+def save_record() -> str | None:
+    """With a protected branch, company/ has no branch to live on, so its history goes on one of its own. No checkout or index is touched."""
+    if not read_state().get("protected"):
+        return None
+    common = Path(git_out("rev-parse", "--git-common-dir"))
+    index = (common if common.is_absolute() else ROOT / common) / "talos-record-index"
+    env = dict(os.environ, GIT_INDEX_FILE=str(index))
+
+    def run(*a):
+        return subprocess.run(["git", *a], cwd=ROOT, env=env, capture_output=True, text=True, encoding="utf-8", errors="replace")
+    who = [] if git_out("config", "user.email") else ["-c", "user.email=talos@localhost", "-c", "user.name=talos"]
+    try:
+        run("add", "-f", "--", "company", ":(exclude)company/.context")
+        tree = run("write-tree").stdout.strip()
+        parent = git_out("rev-parse", "--verify", "-q", f"refs/heads/{RECORD_BRANCH}")
+        if not tree or (parent and git_out("rev-parse", f"{parent}^{{tree}}") == tree):
+            return None
+        commit = run(*who, "commit-tree", tree, *(["-p", parent] if parent else []), "-m", f"Record at {now()}").stdout.strip()
+        if not commit or run("update-ref", f"refs/heads/{RECORD_BRANCH}", commit).returncode != 0:
+            return None
+    finally:
+        index.unlink(missing_ok=True)
+    return commit
+
+
+def cmd_record(args) -> None:
+    ensure_scaffold()
+    if not read_state().get("protected"):
+        print("no protected branch here: the record is committed with the work")
+        return
+    saved = save_record()
+    print(f"record saved on {RECORD_BRANCH}: {saved[:9]}" if saved else f"nothing new; the record is on {RECORD_BRANCH}")
+
+
+def protected_tips() -> dict:
+    return {b: git_out("rev-parse", "--verify", "-q", f"refs/heads/{b}") for b in read_state().get("protected") or []}
+
+
+def report_moved(before: dict, phase: str) -> list[str]:
+    """A phase can't be told apart from the developer here, so a move stops the queue until the CEO says which it was."""
+    moved = []
+    for branch, old in before.items():
+        new = git_out("rev-parse", "--verify", "-q", f"refs/heads/{branch}")
+        if old and new != old:
+            moved.append(branch)
+            append_event("branch.moved", actor="talos-run", tier="mechanical", ref=branch, summary=f"{branch} went from {old[:9]} to {new[:9]} during {phase}")
+            a = build_parser().parse_args(["ask", f"{branch} moved from {old[:9]} to {new[:9]} during {phase}. If that was you, answer \"mine\". If not, the company broke the rule: `git branch -f {branch} {old[:9]}` puts it back.",
+                                           "--actor", "talos-run", "--tier", "mechanical"])
+            with contextlib.redirect_stdout(io.StringIO()):
+                a.fn(a)
+    return moved
+
+
+def cmd_automerge(args) -> None:
+    ensure_scaffold()
+    st = read_state()
+    if args.switch:
+        st["automerge"] = args.switch == "on"
+        write_state(st)
+        append_event("automerge.changed", actor="ceo", tier="ceo", summary=f"low-risk fast-lane fixes {'merge once verified' if st['automerge'] else 'wait for your approval'}")
+    print(f"auto-merge is {'on: verified low-risk fast-lane fixes merge without asking' if st.get('automerge') else 'off: every release waits for your approval'}. It never merges into a protected branch.")
+
+
+def auto_approvals(ev: list[dict], st: dict, items: list[dict]) -> list[dict]:
+    """The CEO's standing approval, when they turned it on: verified, low risk and on the fast lane, nothing else."""
+    if not st.get("automerge"):
+        return []
+    decided = {e.get("ref") for e in ev if e["event"] in ("release.approved", "release.rejected")}
+    out = []
+    for it in items:
+        if it.get("route") == "fast" and it.get("risk") == "low" and it.get("status") == "verified" and it["id"] not in decided:
+            out.append(append_event("release.approved", actor="talos-run", tier="mechanical", ref=it["id"], summary="Auto-merge is on for low-risk fast-lane fixes", extra={"auto": True}))
+    return out
+
+
+def notify_path() -> Path:
+    return ROOT / ".talos" / "notify.json"
+
+
+def cmd_notify(args) -> None:
+    ensure_scaffold()
+    path = notify_path()
+    path.parent.mkdir(exist_ok=True)
+    if args.off:
+        path.unlink(missing_ok=True)
+        append_event("notify.changed", actor="ceo", tier="ceo", summary="gate notifications off")
+        print("gate notifications off")
+    elif args.url:
+        if not args.url.startswith(("https://", "http://")):
+            die("the address must start with https:// or http://")
+        write_lf(path, json.dumps({"url": args.url, "link": args.link, "sent": []}))
+        append_event("notify.changed", actor="ceo", tier="ceo", summary="gate notifications on")
+        print(f"when a gate waits, the runner posts only the project's folder name and the gate's name to {args.url}")
+    else:
+        print(f"notifications go to {json.loads(path.read_text(encoding='utf-8'))['url']}" if path.exists() else "gate notifications are off")
+
+
+def waiting_on_ceo(ev: list[dict], items: list[dict]) -> dict:
+    """{key: words safe to send outside}: gates and questions by name only, never what they say."""
+    out = {}
+    for gate in ("understanding", "charter", "plan", "design", "launch"):
+        p = _index(ev, f"{gate}.proposed")
+        if p >= 0 and max(_index(ev, f"{gate}.approved"), _index(ev, f"{gate}.rejected")) < p:
+            out[f"gate:{gate}:{ev[p]['id']}"] = f"the {gate} gate is waiting for you"
+    decided = {e.get("ref") for e in ev if e["event"] in ("release.approved", "release.rejected")}
+    for it in items:
+        if it.get("status") == "verified" and it["id"] not in decided:
+            out[f"release:{it['id']}"] = f"{it['id']} is ready for your release decision"
+    for q in open_ceo_questions():
+        out[f"question:{q}"] = f"question {q} is waiting for you"
+    return out
+
+
+def send_notifications(ev: list[dict], items: list[dict]) -> list[str]:
+    """Only what the CEO set up with `talos notify`. Each waiting thing is sent once; a failed send is not retried."""
+    path = notify_path()
+    if not path.exists():
+        return []
+    conf = json.loads(path.read_text(encoding="utf-8"))
+    sent, words = set(conf.get("sent") or []), []
+    for key, text in waiting_on_ceo(ev, items).items():
+        if key in sent:
+            continue
+        sent.add(key)
+        body = f"Talos, {ROOT.name}: {text}"
+        req = urllib.request.Request(conf["url"], data=body.encode("utf-8"), method="POST", headers={"Title": "Talos", **({"Click": conf["link"]} if conf.get("link") else {})})
+        try:
+            urllib.request.urlopen(req, timeout=10).close()
+            words.append(body)
+        except (OSError, ValueError) as e:
+            words.append(f"could not notify: {e}")
+    conf["sent"] = sorted(sent)
+    write_lf(path, json.dumps(conf))
+    return words
+
+
+def cmd_version(args) -> None:
+    print((Path(__file__).resolve().parent / "VERSION").read_text(encoding="utf-8").strip())
 
 
 def cmd_base(args) -> None:
@@ -1787,9 +1937,9 @@ def cmd_triage(args) -> None:
     place = dept or ("design" if args.route == "design" else "engineering")
     reply = f"{ROUTES[args.route]}, {place}" + (f", {args.estimate}" if args.estimate else "") + f", {ROUTE_GATES[args.route]}"
     if missing:
-        how = f"python init.py <this folder> --teams {team}"
-        reply = f"{ROUTES[args.route]}, {place}, but the {team} team isn't staffed here. From your Talos checkout run: {how}. Then answer this and it goes ahead"
-        a = build_parser().parse_args(["ask", f"{iid} needs the {team} team. From your Talos checkout run `{how}`, then say done.", "--ref", iid, "--actor", args.actor or "chief-of-staff", "--tier", args.tier or "executive"])
+        how = f"`/talos:talos staff {team}` in Claude Code, or `uv run init.py <this folder> --add-team {team}` from a Talos clone"
+        reply = f"{ROUTES[args.route]}, {place}, but the {team} team isn't staffed here. Run {how}. Then answer this and it goes ahead"
+        a = build_parser().parse_args(["ask", f"{iid} needs the {team} team. Run {how}, then say done.", "--ref", iid, "--actor", args.actor or "chief-of-staff", "--tier", args.tier or "executive"])
         with contextlib.redirect_stdout(io.StringIO()):
             a.fn(a)
     if args.note:
@@ -1926,6 +2076,9 @@ def cmd_doctor(args) -> None:
     if _found("git") and not _runs("git", "config", "user.email"):
         line("WARN", "git has no user.email", "commits will fail: git config user.email you@example.com")
     line("ok", "uv", _runs("uv", "--version")) if _found("uv") else line("WARN", "uv not found", "needed to create the project's .venv: https://docs.astral.sh/uv/")
+    version = re.search(r"(\d+)\.(\d+)", _runs("git", "--version") or "") if _found("git") else None
+    if version and (int(version[1]), int(version[2])) < (2, 28) and (read_state() if STATE.exists() else {}).get("protected"):
+        line("WARN", "this git can't refuse every change to a protected branch", "a fast-forward or a change hidden in a script is only caught when the phase ends. Git 2.28 or later refuses them outright")
     py = sys.version_info
     line("ok" if py >= (3, 8) else "FAIL", f"Python {py.major}.{py.minor}", sys.executable)
     trust = _trust_accepted(ROOT)
@@ -2119,6 +2272,10 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("baseline", help="record which tests pass, or compare against that record"); s.add_argument("--check", action="store_true"); s.add_argument("--where", default=".", help="the checkout to test (--check)"); s.set_defaults(fn=cmd_baseline)
     s = sub.add_parser("test", help="run the tests with the network blocked and no credentials"); s.add_argument("--where", default=".", help="the checkout to test"); s.set_defaults(fn=cmd_test)
     s = sub.add_parser("protect", help="branches the company may never change"); common(s); s.add_argument("branch", nargs="?"); s.add_argument("--off", action="store_true", help="the CEO lifts the rule"); s.set_defaults(fn=cmd_protect)
+    s = sub.add_parser("record", help="save the record on its own branch (protected projects)"); s.set_defaults(fn=cmd_record)
+    s = sub.add_parser("automerge", help="low-risk fast-lane fixes merge once verified (CEO only)"); s.add_argument("switch", nargs="?", choices=["on", "off"]); s.set_defaults(fn=cmd_automerge)
+    s = sub.add_parser("notify", help="tell a URL you choose when a gate waits (CEO only)"); s.add_argument("url", nargs="?"); s.add_argument("--link", help="opens when you tap the notification, such as the control room"); s.add_argument("--off", action="store_true"); s.set_defaults(fn=cmd_notify)
+    s = sub.add_parser("version", help="the framework version stamped here"); s.set_defaults(fn=cmd_version)
     s = sub.add_parser("base", help="the branch work starts from and releases merge into"); s.add_argument("--worktree", action="store_true", help="print where to run a release merge"); s.set_defaults(fn=cmd_base)
     s = sub.add_parser("triage", help="say what a CEO message became and queue the work"); common(s); s.add_argument("mid"); s.add_argument("--route", required=True, choices=list(ROUTES))
     s.add_argument("--title"); s.add_argument("--dept", choices=list(DEPARTMENTS)); s.add_argument("--estimate", help='for the first reply, e.g. "about $2"'); s.add_argument("--note"); s.add_argument("--item", help="an item already queued: change its route")
@@ -2128,18 +2285,18 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("work", help="run the queue, waiting at gates"); s.add_argument("rest", nargs=argparse.REMAINDER); s.set_defaults(fn=cmd_work)
     s = sub.add_parser("journal"); s.add_argument("--date"); s.set_defaults(fn=cmd_journal)
     s = sub.add_parser("consolidate"); s.set_defaults(fn=cmd_consolidate)
-    s = sub.add_parser("viz", help="serve the visualizer for this project (opt-in: init.py --viz); "
+    s = sub.add_parser("viz", help="serve the control room for this project (left out by init.py --headless); "
                        "flags pass through, e.g. --host 0.0.0.0 --port 8000 --allow-host NAME", add_help=False)
     s.add_argument("rest", nargs=argparse.REMAINDER); s.set_defaults(fn=cmd_viz)
     return p
 
 
 def cmd_viz(args) -> None:
-    """Serve the visualizer for this project (opt-in: stamped with init.py --viz). Stdlib only."""
+    """Serve the control room for this project. Stdlib only."""
     here = Path(__file__).resolve().parent
     if not (here / "viz" / "server.py").is_file():
-        sys.exit("talos: the visualizer is not installed in this project (projects are headless by default). "
-                 "Add it from the framework checkout: python init.py <this project> --viz")
+        sys.exit("talos: the control room is not installed in this project (it was stamped --headless). "
+                 "Add it from the framework checkout: uv run init.py <this project> --viz")
     sys.path.insert(0, str(here))
     from viz.server import main as viz_main
     rest = list(args.rest or [])

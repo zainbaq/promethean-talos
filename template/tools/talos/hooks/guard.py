@@ -79,6 +79,8 @@ def protected_problem(cmd: str, payload: dict) -> str | None:
     """Why this changes a protected branch, or None. The named forms are always refused; the rest depend on what the directory has checked out."""
     if re.search(r"\btalos(\.py)?\s+protect\b.*--off", cmd):
         return "only the CEO lifts a branch rule"
+    if re.search(r"\btalos(\.py)?\s+(automerge\s+on|notify\s+\S)", cmd):
+        return "only the CEO turns on auto-merge or sets where notifications go"
     try:
         names = json.loads((project_base(payload) / "company" / "state.json").read_text(encoding="utf-8")).get("protected") or []
     except (OSError, ValueError):

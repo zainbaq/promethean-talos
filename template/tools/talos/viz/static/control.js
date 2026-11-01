@@ -98,6 +98,11 @@ export function createControl({ query, sessionUrl = "/api/session" }) {
     });
   }
 
+  // a browser only asks after a click, and only on https or localhost; elsewhere the count in the tab title is the signal
+  document.addEventListener("click", () => {
+    if (window.Notification && window.isSecureContext && Notification.permission === "default") Notification.requestPermission();
+  }, { once: true });
+
   function gateCard(w) {
     const body = { gate: w.gate };
     if (w.gate === "release") body.ref = w.ref;
@@ -116,7 +121,8 @@ export function createControl({ query, sessionUrl = "/api/session" }) {
       if (reason.value.trim()) post("reject", { ...body, reason: reason.value });
     });
     const title = h("p", { class: "ctlcard__title" });
-    const link = w.gate === "release" ? h("a", { class: "ctlcard__link", href: `?view=work#${w.ref}` }, "See the item") : null;
+    const link = w.gate === "release" ? h("a", { class: "ctlcard__link", href: `?view=work#${w.ref}` }, "See the item")
+      : w.proposed_event ? h("a", { class: "ctlcard__link", href: `?view=timeline#${w.proposed_event}` }, "See what was proposed") : null;
     const el = h("li", { class: "ctlcard", "data-kind": "gate" }, h("p", { class: "ctlcard__kind" }, `${w.gate} gate`), title, link, h("div", { class: "ctlcard__actions" }, approve, reject), why);
     return { el, title };
   }
@@ -136,6 +142,7 @@ export function createControl({ query, sessionUrl = "/api/session" }) {
 
   function renderCards(s) {
     const open = new Set(s.waiting.map((w) => w.key));
+    const fresh = [];
     for (const [key, card] of refs.cards) {
       if (!open.has(key)) {
         card.el.remove();
@@ -147,12 +154,16 @@ export function createControl({ query, sessionUrl = "/api/session" }) {
       let card = refs.cards.get(w.key);
       if (!card) {
         card = w.kind === "gate" ? gateCard(w) : questionCard(w);
+        fresh.push(w.title);
         refs.cards.set(w.key, card);
         list.append(card.el);
       }
       if (card.title.textContent !== w.title) card.title.textContent = w.title;
     }
     dock.hidden = refs.cards.size === 0 && note.hidden;
+    document.title = (refs.cards.size ? `(${refs.cards.size}) ` : "") + document.title.replace(/^\(\d+\) /, "");
+    if (refs.seen && fresh.length && document.hidden && window.Notification && Notification.permission === "granted") new Notification("Talos", { body: fresh.join("; ") });
+    refs.seen = true;
   }
 
   // ---------- thread: the CEO's messages and the ledger events addressed to them

@@ -1,0 +1,12 @@
+{
+  "name": "promethean-talos",
+  "description": "Talos, a standing company of Claude Code agents for any folder.",
+  "owner": { "name": "Promethean Labs" },
+  "plugins": [
+    {
+      "name": "talos",
+      "source": "./",
+      "description": "Employ a standing company of Claude Code agents in any folder."
+    }
+  ]
+}

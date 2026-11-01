@@ -314,6 +314,8 @@ def run_phase(phase: str, text: str, model: str | None, turns: int | None, dry: 
     print(f"talos run: {phase} on {used_model} (fresh lean session) ...", flush=True)
     before = ledger_len()
     mark_delivered()
+    talos = load_talos()
+    tips = talos.protected_tips()
     p = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace")
     raw = p.stdout.strip()
     try:
@@ -331,6 +333,8 @@ def run_phase(phase: str, text: str, model: str | None, turns: int | None, dry: 
         if missing:
             reason = f"phase did not finish: {missing}; `tools/talos/run resume` continues it"
     log_run(phase, used_model, res, preset)
+    talos.report_moved(tips, phase)
+    talos.save_record()
     print(f"\ntalos run: {phase} {res.get('num_turns')} turns, ${res.get('total_cost_usd', 0):.2f}, session {res.get('session_id')}")
     if reason:
         return stopped(phase, reason)
@@ -405,7 +409,12 @@ def work(args: list[str]) -> int:
                 beat.set(f"stopped at the ${max_usd:.0f} limit (spent ${spent:.2f}); start it again with a higher --max-usd")
                 return 0
             fm, _ = talos.parse_frontmatter((talos.CO / "charter.md").read_text(encoding="utf-8"))
-            action, why = talos.next_action(ev, talos.read_state(), talos.load_items(), fm, tried)
+            items = talos.load_items()
+            if talos.auto_approvals(ev, talos.read_state(), items):
+                ev = talos.read_ledger()
+            for said in talos.send_notifications(ev, items):
+                print(f"talos work: {said}", flush=True)
+            action, why = talos.next_action(ev, talos.read_state(), items, fm, tried)
             if word == "pause":
                 beat.set("paused; say \"resume\" to continue")
             elif action is None:
