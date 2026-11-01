@@ -5,6 +5,7 @@ import os
 import subprocess
 import sys
 import threading
+import time
 import unittest
 from pathlib import Path
 
@@ -116,6 +117,27 @@ class Protected(Repo):
         self.assertEqual(self.guard("tools/talos/talos automerge on").returncode, 2)
         self.assertEqual(self.guard("tools/talos/talos notify https://example.com/x").returncode, 2)
         self.assertEqual(self.guard("tools/talos/talos automerge").returncode, 0)
+
+
+class Adopted(Repo):
+    def test_understanding_opens_the_charter_gate(self):
+        self.stamp()
+        self.assertNotEqual(self.cli("gate", "charter", ok=False).returncode, 0)
+        self.cli("log", "understanding.proposed", "--summary", "x")
+        self.cli("approve", "understanding", "--quote", "ok")
+        self.assertIn("gate open", self.cli("gate", "charter"))
+
+
+class OneRunner(Repo):
+    def test_a_second_runner_leaves(self):
+        self.stamp()
+        run = self.root / ".talos" / "runner.json"
+        run.parent.mkdir(exist_ok=True)
+        run.write_text(json.dumps({"pid": 123, "beat": time.time()}), encoding="utf-8")
+        p = subprocess.run([sys.executable, str(TALOS / "run.py"), "work"], cwd=self.root, env=self.env, capture_output=True, text=True, encoding="utf-8")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn("already working", p.stdout)
+        self.assertTrue(run.exists(), "it's the other runner's file")
 
 
 class Notify(Repo):

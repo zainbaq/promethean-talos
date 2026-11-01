@@ -390,7 +390,20 @@ class Beat:
             time.sleep(POLL_SECONDS)
 
 
+def another_runner() -> int | None:
+    """The PID of a runner still beating here. Two would run the same phase twice and pay twice."""
+    try:
+        was = json.loads((ROOT / ".talos" / "runner.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return was.get("pid") if time.time() - float(was.get("beat") or 0) < 3 * POLL_SECONDS else None
+
+
 def work(args: list[str]) -> int:
+    other = another_runner()
+    if other:
+        print(f"talos work: a runner is already working here (process {other}); it takes new messages by itself")
+        return 0
     max_usd = float(args[args.index("--max-usd") + 1]) if "--max-usd" in args else 50.0
     talos = load_talos()
     if talos.runner_word(talos.read_ledger())[0] == "stop":

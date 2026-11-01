@@ -774,6 +774,10 @@ def cmd_gate(args) -> None:
     ev = read_ledger()
     if args.what in ("charter", "plan"):
         proposed = latest(ev, f"{args.what}.proposed")
+        understood = latest(ev, "understanding.approved")
+        if args.what == "charter" and understood and (not proposed or ev.index(understood) > ev.index(proposed)):
+            print(f"gate open: the approved understanding is the charter ({understood['id']})")  # an adopted project never proposes a charter
+            return
         approved = latest(ev, f"{args.what}.approved")
         if not approved or (proposed and ev.index(approved) < ev.index(proposed)):  # ledger order, not 1-second timestamps
             die(f"GATE CLOSED: {args.what} not approved by CEO since last proposal", 1)
