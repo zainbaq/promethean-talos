@@ -27,11 +27,24 @@ Agents are good at executing precise instructions and bad at guessing. Most "AI 
 
 Requirements: Claude Code, git, and [`uv`](https://docs.astral.sh/uv/) (`winget install astral-sh.uv` on Windows). Nothing else: at kickoff the company creates a per-project `.venv` with `uv`, which downloads its own Python, so no project depends on Anaconda, a system interpreter, or anything else on the machine. The record CLI itself runs on that venv (`uv run` finds its own Python for `init.py`).
 
+**With the plugin.** Installed for one project, from the folder you want a company in:
+
+```bash
+claude plugin marketplace add zainbaq/promethean-talos --scope project
+claude plugin install talos@promethean-talos --scope project
+```
+
+Then say `/talos:talos` in Claude Code, with or without what you want done. In a repo with commits it stamps with your current branch protected, so the work goes on `talos/work` and only you merge it. `/talos:talos staff design` adds a team and `/talos:talos upgrade` picks up a newer Talos. Updating the plugin itself is `claude plugin update talos@promethean-talos --scope project`.
+
+**With a clone.** The same files, pinned to the commit you cloned:
+
 ```bash
 git clone https://github.com/zainbaq/promethean-talos
 uv run promethean-talos/init.py /path/to/your/project --brief my-brief.md --teams core,design
 cd /path/to/your/project && tools/talos/talos doctor && tools/talos/talos start
 ```
+
+Either way the files live in your project and everything the company makes stays there. `uv run init.py <project> --upgrade` keeps any agent or skill you changed and lists what's new; `--add-team gtm` staffs one more team.
 
 In cmd or PowerShell on Windows, use `tools\talos\talos.cmd` and `tools\talos\run.cmd`. If a run stops on a usage limit, `tools/talos/run resume` continues it. `tools/talos/talos status` always ends with the next step.
 
@@ -46,13 +59,15 @@ In cmd or PowerShell on Windows, use `tools\talos\talos.cmd` and `tools\talos\ru
 
 Say "approved" (or what should change) at each gate; `tools/talos/run review "<your words>"` records them. `tools/talos/talos status --brief` tells you where things stand and `tools/talos/talos usage` what it cost, measured from Claude Code's transcripts.
 
-### The visualizer (optional)
+### The control room
 
 Once it is employed, ask for anything: `tools/talos/talos say --text "add CSV export"`, then `tools/talos/talos work`. Triage answers it or picks a route and says the cost first. Marketing and launch work needs `--teams core,gtm`; those roles draft and you send.
 
-In a repo you want left alone, stamp with `--protect main`. The company then never changes `main`: its files and all approved work go on a local `talos/work` branch, and only you merge from there. `tools/talos/talos protect main --off` lifts the rule.
+In a repo you want left alone, stamp with `--protect main`. The company then never changes `main`: its files and all approved work go on a local `talos/work` branch, and only you merge from there. `tools/talos/talos protect main --off` lifts the rule. The record is saved on its own `talos/record` branch. Git 2.28 or later refuses every change to the branch outright; on older git, a change hidden in a script is caught when the phase ends, and the queue stops until you say whose it was.
 
-Projects are headless by default. If you would rather watch the company work, stamp with `--viz` (or re-run `init.py <project> --viz` on an existing project) and start it from the project root:
+Two options are off until you turn them on: `tools/talos/talos automerge on` merges verified low-risk fast-lane fixes without asking, and `tools/talos/talos notify <url>` posts a gate's name, and nothing about its content, to an address you choose such as an ntfy topic.
+
+Every project gets a control room unless you stamp it with `--headless`. Start it from the project root:
 
 ```bash
 tools/talos/talos viz                                  # http://127.0.0.1:8000/
@@ -81,7 +96,7 @@ Each role is a markdown file in `.claude/agents/`. Add your own by copying one. 
 .claude/rules/           conventions that load when anyone touches company/
 .claude/settings.json    hooks (status on start, destructive-command guard, log reminder) and permissions, merged with yours
 tools/talos/           the stdlib-only record CLI and hook scripts
-tools/talos/viz/         the visualizer, only with --viz
+tools/talos/viz/         the control room, left out by --headless
 company/                 the project record
 CLAUDE.md                a "Talos" section appended between markers
 ```
