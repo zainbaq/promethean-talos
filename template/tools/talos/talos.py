@@ -1421,7 +1421,7 @@ def next_action(ev: list[dict], st: dict, items: list[dict], fm: dict, tried=())
         ran = {e.get("phase") for e in ev[started:] if e["event"] == "run.completed"}
         phase = "cycle-close" if "cycle-verify" in ran else "cycle-verify" if "cycle-build" in ran else "cycle-build"
         return act(phase, "", f"{phase}:{cycle}", f"running {phase}")
-    waiting = [i["id"] for i in items if i.get("status") == "verified"]
+    waiting = [i["id"] for i in items if i.get("status") == "verified" and i["id"] not in shipped]
     if waiting:
         return None, f"waiting on your release decision for {', '.join(waiting)}"
     ended, retro = _index(ev, "cycle.ended"), _index(ev, "retro.completed")
@@ -1944,7 +1944,8 @@ def cmd_triage(args) -> None:
         fm["status"] = "blocked"
     write_lf(p, dump_frontmatter(fm, body))
     place = dept or ("design" if args.route == "design" else "engineering")
-    reply = f"{ROUTES[args.route]}, {place}" + (f", {args.estimate}" if args.estimate else "") + f", {ROUTE_GATES[args.route]}"
+    gates = "it merges once verified, because auto-merge is on" if read_state().get("automerge") and args.route == "fast" and args.risk == "low" else ROUTE_GATES[args.route]
+    reply = f"{ROUTES[args.route]}, {place}" + (f", {args.estimate}" if args.estimate else "") + f", {gates}"
     if missing:
         how = f"`/talos:talos staff {team}` in Claude Code, or `uv run init.py <this folder> --add-team {team}` from a Talos clone"
         reply = f"{ROUTES[args.route]}, {place}, but the {team} team isn't staffed here. Run {how}. Then answer this and it goes ahead"

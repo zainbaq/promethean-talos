@@ -142,6 +142,17 @@ class Initiative(Repo):
             ev.append({"id": "E3", "event": "plan.proposed", "ref": None})
             self.assertIsNone(talos.routed_step(ev, {}, items, act))
 
+    def test_a_shipped_item_holds_up_nothing(self):
+        self.stamp()
+        self.next()
+        import talos
+        st = {"cycle": 0}
+        fm = {"status": "approved"}
+        shipped = [{"id": "E1", "event": "plan.approved", "ref": None}, {"id": "E2", "event": "release.approved", "ref": "ITEM-0001"}, {"id": "E3", "event": "release.shipped", "ref": "ITEM-0001"}]
+        items = [{"id": "ITEM-0001", "status": "verified"}, {"id": "ITEM-0002", "status": "ready", "risk": "low"}]
+        self.assertEqual(talos.next_action(shipped, st, items, fm)[0][0], "cycle-build")
+        self.assertIn("release decision", talos.next_action(shipped[:1], st, items, fm)[1])
+
     def test_approval_clears_a_stopped_phase(self):
         self.stamp()
         self.next()

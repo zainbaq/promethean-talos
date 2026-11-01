@@ -32,3 +32,5 @@ The draft's path, one line on what it says, and one claim in it the CEO should c
 ## Do not
 - Create engineering items without the CEO: a requirement you notice is one line in your final message.
 - Send, post, submit or publish anything, or ask a subagent to.
+
+A readiness checklist is always `company/launch/readiness.md`, whatever the ask called it: `talos gate launch` reads only that file.
